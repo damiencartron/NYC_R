@@ -31,6 +31,9 @@ SWD <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     names_glue = "{category}_{.value}",
     # values_from = c( "SWD_number_tested", "SWD_MSC", "SWD_level_1", "SWD_level_2", "SWD_level_3", "SWD_level_4" )
     values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
+  ) |> 
+  mutate(
+    tx_swd = round(SWD_number_tested / (not_SWD_number_tested + SWD_number_tested) * 100, 1)
   )
 
 names(SWD)
@@ -49,13 +52,26 @@ Ethnicity <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
       category == "Multi-Racial" ~"Multi", 
       category == "Native American" ~"Natives", 
       .default = category
-    )) |> 
+    ), 
+    across(where(is.character), ~ na_if(.x, "s"))  # je vire les "s" du non significatif ; remplacé par des NA
+    ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
     values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
-  )
+  )|> 
+  mutate(
+    tested = Asian_number_tested + Black_number_tested + Hispanic_number_tested + Multi_number_tested + Natives_number_tested + White_number_tested, 
+    txAsian = round(Asian_number_tested / tested * 100, 1), 
+    txBlack = round(Black_number_tested / tested * 100, 1),
+    txHispanic = round(Hispanic_number_tested / tested * 100, 1),
+    txMulti = round(Multi_number_tested / tested * 100, 1), 
+    txNatives = round(Natives_number_tested / tested * 100, 1), 
+    txWhite = round(White_number_tested / tested * 100, 1), 
+    txNonWhite = 100 - txWhite
+  ) |> 
+  select(!tested)
 
 names(Ethnicity)
 
@@ -68,14 +84,26 @@ Gender <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
   rename(MSC = "mean_scale_score") |> 
   rename_with(~ sub("^number_level","level", .x), starts_with("number_")) |> 
   mutate(
-    category = if_else(category == "Neither Female nor Male", "NonBinaire", category
-    )) |> 
+    category = if_else(category == "Neither Female nor Male", "NonBinaire", category),
+    across(where(is.character), ~ na_if(.x, "s"))  # je vire les "s" du non significatif ; remplacé par des NA
+    ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
     values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
-  )
+  ) |> 
+  rowwise() |> 
+  mutate(
+    txFemale = round(Female_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1) , 
+    txMale  = round(Male_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1) ,
+    txNBinaire = round(NonBinaire_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1)
+  ) |> # je fais le choix de laisser des NA pour les non binaires lorsqu'il n'y en a pas ; et des 0 lorsqu'il y en a mais qu'ils ne sont pas calculables
+  ungroup()
+
+
+names(Gender)
+str(Gender)
 
 # Import onglet Statut économique ----------
 
@@ -96,14 +124,19 @@ EconomicStatus <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     names_from = category, 
     names_glue = "{category}_{.value}",
     values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
+  ) |> 
+  mutate(
+    txPauvres = round(Pauvres_number_tested  /(Pauvres_number_tested + NonPauvres_number_tested) * 100, 1)
   )
+  
 
 names(EconomicStatus)
 
-# Fusion onglet ELL-----
+# Import onglet ELL-----
 
 ELL <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
-                             sheet = "ELA - ELL") |> 
+                  sheet = "ELA - ELL", 
+                  col_types = "text") |>  # les colonnes étaient vues comme numériques alors qu'il y avait des "s" dans les lignes 1600 ce qui mettait le bazar ; j'importe tout en texte
   clean_names() |> 
   select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
   rename(MSC = "mean_scale_score") |> 
@@ -114,13 +147,25 @@ ELL <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
       category == "Ever ELL" ~"EverELL",
       category == "Never ELL" ~"NeverELL",
       .default = category
-    )) |> 
+    ), 
+    across(where(is.character), ~ na_if(.x, "s")), 
+    across(c(year, number_tested, MSC, level_1, level_2, level_3, level_4), as.numeric), # je remets les colonnes en numérique
+    ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
     values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
+  ) |> 
+  mutate(
+    txCurrentELL = round(CurrentELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1), 
+    txEverELL = round(EverELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1), 
+    txNeverELL = round(NeverELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1)
   )
+
+# writexl::write_xlsx(ELL, "ajeter.xlsx")
+names(ELL)
+str(ELL)
 
 # Merge des différents onglets + ajouts des variables communes--------
 
