@@ -2,6 +2,7 @@ library(readxl)
 library(arrow)
 library(janitor)
 library(tidyverse)
+library(gtsummary)
 
 # Import Onglet All ----
 
@@ -33,7 +34,8 @@ SWD <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
   ) |> 
   mutate(
-    tx_swd = round(SWD_number_tested / (not_SWD_number_tested + SWD_number_tested) * 100, 1)
+    txSWD = round(SWD_number_tested / (not_SWD_number_tested + SWD_number_tested) * 100, 1), 
+    QSWD = str_glue("Q{ntile(txSWD, 4)}")
   )
 
 names(SWD)
@@ -69,11 +71,13 @@ Ethnicity <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     txMulti = round(Multi_number_tested / tested * 100, 1), 
     txNatives = round(Natives_number_tested / tested * 100, 1), 
     txWhite = round(White_number_tested / tested * 100, 1), 
-    txNonWhite = 100 - txWhite
+    txNonWhite = 100 - txWhite, 
+    QNonWhite = str_glue("Q{ntile(txNonWhite, 4)}")
   ) |> 
   select(!tested)
 
 names(Ethnicity)
+# table(Ethnicity$QNonWhite)
 
 # Import onglet Gender-----
 
@@ -97,7 +101,8 @@ Gender <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
   mutate(
     txFemale = round(Female_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1) , 
     txMale  = round(Male_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1) ,
-    txNBinaire = round(NonBinaire_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1)
+    txNBinaire = round(NonBinaire_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1), 
+    QFemale = str_glue("Q{ntile(txFemale, 4)}")
   ) |> # je fais le choix de laisser des NA pour les non binaires lorsqu'il n'y en a pas ; et des 0 lorsqu'il y en a mais qu'ils ne sont pas calculables
   ungroup()
 
@@ -126,11 +131,13 @@ EconomicStatus <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
   ) |> 
   mutate(
-    txPauvres = round(Pauvres_number_tested  /(Pauvres_number_tested + NonPauvres_number_tested) * 100, 1)
+    txPauvres = round(Pauvres_number_tested  /(Pauvres_number_tested + NonPauvres_number_tested) * 100, 1),
+    QPauvres = str_glue("Q{ntile(txPauvres, 4)}")
   )
   
 
 names(EconomicStatus)
+table(EconomicStatus$QPauvres)
 
 # Import onglet ELL-----
 
@@ -160,12 +167,14 @@ ELL <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
   mutate(
     txCurrentELL = round(CurrentELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1), 
     txEverELL = round(EverELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1), 
-    txNeverELL = round(NeverELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1)
+    txNeverELL = round(NeverELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1), 
+    QNonNativeSpeaker = str_glue("Q{ntile(100-txNeverELL, 4)}")
   )
 
 # writexl::write_xlsx(ELL, "ajeter.xlsx")
 names(ELL)
 str(ELL)
+
 
 # Merge des différents onglets + ajouts des variables communes--------
 
@@ -197,7 +206,7 @@ district <- All |>
       district %in% c("31") ~"STATEN",
       .default = str_glue("{district}_pb")) , 
     
-    across(where(is.character) & !c(district, grade, book, borough), as.numeric)  # je remets toutes les variables qui devraient être en numérique en numérique 
+    across(where(is.character) & !c(district, grade, book, borough, starts_with("Q")), as.numeric)  # je remets toutes les variables qui devraient être en numérique en numérique 
   ) |> 
   relocate(phase, book, borough, .after = year)
 
@@ -211,3 +220,13 @@ table(district$book)
 table(district$borough)
 str(district)
 names(district)
+
+district |> 
+  tbl_cross(
+    row = borough, 
+    col = QPauvres, 
+    statistic = "{p}% ({n})", 
+    percent = "row"
+  ) |> 
+  add_p()
+
