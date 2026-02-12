@@ -30,7 +30,6 @@ SWD <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
-    # values_from = c( "SWD_number_tested", "SWD_MSC", "SWD_level_1", "SWD_level_2", "SWD_level_3", "SWD_level_4" )
     values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
   ) |> 
   mutate(
@@ -192,9 +191,13 @@ district <- All |>
       district %in% c("01", "02", "03", "04", "06", "07", "08", "09", "10", "13", "15", "17", "18", "24", "27", "28", "31") ~"2", 
       .default = str_glue("{district}_pb")), 
     
+    phase = factor(phase, 
+                          levels = c(1, 2), 
+                          labels = c("phase_1", "phase_2")),
+    
     book = case_when(
-      district %in% c("04", "05", "08", "09", "10", "12", "14", "15", "16", "17",  "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32") ~"into", 
-      district %in% c("02", "03", "18", "19") ~"wit",
+      district %in% c("04", "05", "08", "09", "10", "12", "14",  "16", "17",  "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32") ~"into", 
+      district %in% c("02", "03", "15", "18", "19") ~"wit",
       district %in% c("01",  "06", "07", "11", "13") ~"ELE", 
       .default = str_glue("{district}_pb")), 
     
@@ -213,6 +216,14 @@ district <- All |>
 # Export en parquet ----    
 write_parquet(district, "data/district.parquet")
 
+# Suppression des fichiers temporaires ----
+rm(All)
+rm(EconomicStatus)
+rm(ELL)
+rm(Gender)
+rm(SWD)
+rm(Ethnicity)
+
 
 # quelques vérif -----  
 table(district$phase)
@@ -221,12 +232,17 @@ table(district$borough)
 str(district)
 names(district)
 
-district |> 
-  tbl_cross(
-    row = borough, 
-    col = QPauvres, 
-    statistic = "{p}% ({n})", 
-    percent = "row"
-  ) |> 
-  add_p()
 
+district3G |> 
+  filter(year == "2025") |> 
+  ggplot(aes(x = All_MSC)) +
+  geom_histogram(binwidth = 3)+
+  geom_vline(xintercept = quantile(district3G$All_MSC, 0.25, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)
+
+
+
+district3G |> 
+  filter(year == "2025") |> 
+  ggplot(aes(x = All_MSC)) +
+  geom_histogram(binwidth = 3)+
+  geom_vline(xintercept = quantile(district3G |> filter(year == "2025") |> pull(All_MSC), 0.25, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)

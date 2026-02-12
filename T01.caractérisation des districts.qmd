@@ -1,0 +1,234 @@
+---
+title: "T01.Caractérisation districts"
+format: html
+embed-resources: true
+editor: visual
+execute: 
+  echo: false
+  warning: false
+---
+
+```{r}
+library(tidyverse)
+library(arrow)
+library(gtsummary)
+library(gt)
+library(kableExtra)
+library(scales)
+district <- read_parquet("data/district.parquet")
+```
+
+Remarque préalable : j'ai fait le choix de faire les stats de description des districts à partir du fichier où il n'y a plus que les 3rd grade. Se souvenir que les quartiles ont été calculé sur toutes les classes en même temps (ça ne doit pas changer grand chose mais en cas de publication il faudrait sans doute faire le filtre avant le calcul des quartiles).
+
+```{r}
+district3G <- district |> 
+  filter(grade == "3")
+
+district3G_25 <- district3G |> 
+  filter(year == "2025")
+```
+
+# Quelques vérifs :
+
+## Districts et boroughs
+
+Petite vérification que les districts sont dans les bons borough :
+
+**attention : staten island n'est constitué que d'un district**
+
+```{r}
+district3G |> 
+  select(borough, district) |> 
+  distinct() |> 
+  arrange(borough) |> 
+  kable()
+```
+
+## Districts et phases
+
+```{r}
+district3G |> 
+  select(phase, district) |> 
+  distinct() |> 
+  arrange(phase) |> 
+  kable()
+```
+
+## Nbe d'élèves par phase en 2025
+
+```{r}
+district3G |> 
+  # mutate(phase = factor(phase, 
+  #                       levels = c(1, 2), 
+  #                       labels = c("phase_1", "phase_2"))) |> 
+  filter(year == "2025") |> 
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    .by = phase
+  ) |> 
+  arrange(phase) |> 
+  mutate(
+    pct = Nbeeleve / sum(Nbeeleve, na.rm = T),
+    Nbeeleve = number(Nbeeleve, big.mark = " "), 
+    pct = percent(pct, accuracy = 0.1, suffix = " %")) |>  # nécessite le package scales
+  kable(align = "r")  # Aligne toutes les colonnes à droite
+  
+```
+
+## Districts et méthodes de lecture
+
+**Attention ; je viens de remarquer (après le recodage) que le district 15 a deux méthodes différentes :**
+
+-   Into reading pour schools with dual language programs,
+
+-   Wit & Wisdom pour écoles sans programmes bilingues,
+
+    *Pour le moment le district 15 est codé Wit&Wisdom*
+
+```{r}
+district3G |> 
+  select(book, district) |> 
+  distinct() |> 
+  arrange(book) |> 
+  kable()
+```
+
+# Les districts
+
+Nombre de districts par borough
+
+```{r}
+district3G |> 
+  filter(year == "2025") |>  # je filtre pour n'avoir qu'une ligne par année 
+  summarize(
+    n = n(),
+    .by = borough
+  ) |> 
+  kable()
+```
+
+Quelques statistiques de base sur le nombre d'élèves par districts (je ne garde que l'année 2025 qui est notre année d'intérêt histoire de vérifier qu'on ne va pas avoir des effectifs trop faibles etc) :
+
+```{r}
+district3G |> 
+  filter(year == "2025") |> 
+  tbl_summary(
+    include = All_number_tested,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )
+  )
+```
+
+Nombre d'élèves testés par borough
+
+```{r}
+district3G |> 
+  filter(year == "2025") |> 
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    .by = borough
+  ) |> 
+  mutate(
+    pct = Nbeeleve / sum(Nbeeleve, na.rm = T),
+    Nbeeleve = number(Nbeeleve, big.mark = " "), 
+    pct = percent(pct, accuracy = 0.1, suffix = " %")) |>  # nécessite le package scales
+  kable(align = "r")  # Aligne toutes les colonnes à droite
+
+```
+
+## Résultats du test de lecture
+
+Quelsques stats descriptives sur le résultat au test :
+
+```{r}
+district3G |> 
+  filter(year == "2025") |> 
+  tbl_summary(
+    include = All_MSC,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )
+  )
+```
+
+Distribution de All_MSC pour l'année 2025
+
+```{r}
+district3G_25 |> 
+  ggplot(aes(x = All_MSC)) +
+  geom_histogram(binwidth = 3)+
+   geom_vline(xintercept = quantile(district3G_25$All_MSC, 0.25, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+   geom_vline(xintercept = quantile(district3G_25$All_MSC, 0.5, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+   geom_vline(xintercept = quantile(district3G_25$All_MSC, 0.75, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+   geom_vline(xintercept = mean(district3G_25$All_MSC,na.rm = TRUE), color = "red", linetype = "dashed", linewidth = 1)
+```
+
+*En vert les quartiles, en rouge la moyenne.*
+
+Au final on a une faible hétérogénéité en passant par les districts; faudra-t-il passer par les écoles ?
+
+# Economics Status
+
+**Pour cette partie, tous les calculs sont limités au 3ème grade en 2025**
+
+### Répartition des quartiles d'enfants pauvres par borough 
+
+```{r}
+district3G_25 |> 
+  tbl_cross(
+    row = borough,
+    col = QPauvres, 
+    statistic = "{p}% ({n})", 
+    percent = "row"
+  ) |> 
+  # add_p() |> 
+  as_gt() |> 
+  tab_header("Répartition des quantiles de pauvreté par borough") |> 
+  tab_source_note("Dans le Bronx, 83% des écoles sont dans le quartile où il y a le plus d'enfants défavorisés")
+```
+
+### Score moyen des riches et des pauvres 
+
+```{r}
+district3G_25 |> 
+  summarize(
+    MSCMoyPov = round(mean(Pauvres_MSC, na.rm = TRUE),0), 
+    MSCMoyNonPov = round(mean(NonPauvres_MSC, na.rm = TRUE), 0)
+  )
+```
+
+### Score moyen des riches et des pauvres par phase 
+
+```{r}
+district3G_25 |> 
+  group_by(phase) |> 
+  summarize(
+    MSCMoyPov = round(mean(Pauvres_MSC, na.rm = TRUE), 0), 
+    MSCMoyNonPov = round(mean(NonPauvres_MSC, na.rm = TRUE), 0)
+  )
+```
+
+### Répartition pauvres / riches en phase 1 et 2 : 
+
+```{r}
+district3G_25 |> 
+  group_by(phase) |> 
+  summarize(
+    MSCpctPov = round(sum(Pauvres_number_tested, na.rm = TRUE) / (sum(Pauvres_number_tested, na.rm = T) + sum(NonPauvres_number_tested, na.rm = T)), 2), 
+    MSCpctNonPov = round(sum(NonPauvres_number_tested, na.rm = TRUE) / (sum(Pauvres_number_tested, na.rm = T) + sum(NonPauvres_number_tested, na.rm = T)), 2)
+  ) |> 
+  mutate(
+    MSCpctPov = percent(MSCpctPov, accuracy = 0.1, suffix = " %"), 
+    MSCpctNonPov = percent(MSCpctNonPov, accuracy = 0.1, suffix = " %")
+  ) |> 
+  kable()
+```
