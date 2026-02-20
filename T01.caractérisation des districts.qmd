@@ -27,7 +27,11 @@ theme_gtsummary_language(language = "fr", decimal.mark = ",", big.mark = " ")
 district <- read_parquet("data/district.parquet")
 ```
 
-Remarque préalable : j'ai fait le choix de faire les stats de description des districts à partir du fichier où il n'y a plus que les 3rd grade. Se souvenir que les quartiles ont été calculé sur toutes les classes en même temps (ça ne doit pas changer grand chose mais en cas de publication il faudrait sans doute faire le filtre avant le calcul des quartiles).
+Remarques préalables :
+
+-   j'ai fait le choix de faire les stats de description des districts à partir du fichier où il n'y a plus que les 3rd grade. Se souvenir que les quartiles ont été calculé sur toutes les classes en même temps (ça ne doit pas changer grand chose mais en cas de publication il faudrait sans doute faire le filtre avant le calcul des quartiles).
+
+-   20/2/26 : attention, j'ai réalisé que je calculais les quartiles pour toutes les années mélangées, désormais les quartiles sont calculés par année. L'effet regardé juste pour SWD_34 est important : entre 25% et 60% des quartiles ont été modifié (selon les quartiles)
 
 ```{r}
 district3G <- district |> 
@@ -263,7 +267,7 @@ district3G |>
 
 ```
 
-### Évolution de MSC pour les 3G du MSC 
+### Évolution de MSC pour les 3G du MSC
 
 Graphique demandé mais à mon sens illisible
 
@@ -310,6 +314,15 @@ district3G |>
   ) +
   theme_minimal() +
   coord_cartesian(clip = "off")  # laisse un peu de place pour les labels à droite
+```
+
+### Evolution du tx34 
+
+```{r}
+district3G |> group_by(year) |> 
+  summarize(moy = mean(All_tx_34, na.rm = TRUE)) |> 
+  ggplot(aes(x = year, y = moy)) + 
+  geom_col()
 ```
 
 # Economics Status
@@ -369,4 +382,110 @@ district3G_25 |>
     MSCpctNonPov = percent(MSCpctNonPov, accuracy = 0.1, suffix = " %")
   ) |> 
   kable()
+```
+
+### Taux de riche par disctrict
+
+```{r}
+district3G_25 |> 
+  group_by(district) |> 
+  summarize(
+    MSCpctPov = round(sum(Pauvres_number_tested, na.rm = TRUE) / (sum(Pauvres_number_tested, na.rm = T) + sum(NonPauvres_number_tested, na.rm = T)), 2), 
+    MSCpctNonPov = round(sum(NonPauvres_number_tested, na.rm = TRUE) / (sum(Pauvres_number_tested, na.rm = T) + sum(NonPauvres_number_tested, na.rm = T)), 2)
+  ) |> 
+  mutate(
+    MSCpctPov = percent(MSCpctPov, accuracy = 0.1, suffix = " %"), 
+    MSCpctNonPov = percent(MSCpctNonPov, accuracy = 0.1, suffix = " %")
+  ) |> 
+  kable()
+```
+
+### Taux de riche par borough
+
+```{r}
+district3G_25 |> 
+  group_by(borough) |> 
+  summarize(
+    MSCpctPov = round(sum(Pauvres_number_tested, na.rm = TRUE) / (sum(Pauvres_number_tested, na.rm = T) + sum(NonPauvres_number_tested, na.rm = T)), 2), 
+    MSCpctNonPov = round(sum(NonPauvres_number_tested, na.rm = TRUE) / (sum(Pauvres_number_tested, na.rm = T) + sum(NonPauvres_number_tested, na.rm = T)), 2)
+  ) |> 
+  mutate(
+    MSCpctPov = percent(MSCpctPov, accuracy = 0.1, suffix = " %"), 
+    MSCpctNonPov = percent(MSCpctNonPov, accuracy = 0.1, suffix = " %")
+  ) |> 
+  kable()
+```
+
+### Quelques stats descriptives sur le taux de riche :
+
+```{r}
+district3G_25 |> 
+  group_by(district) |> 
+  summarize(
+    MSCpctPov = round(sum(Pauvres_number_tested, na.rm = TRUE) / (sum(Pauvres_number_tested, na.rm = T) + sum(NonPauvres_number_tested, na.rm = T))*100, 2), 
+    MSCpctNonPov = round(sum(NonPauvres_number_tested, na.rm = TRUE) / (sum(Pauvres_number_tested, na.rm = T) + sum(NonPauvres_number_tested, na.rm = T))*100, 2)
+  ) |> 
+  tbl_summary(
+    include = MSCpctNonPov,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )
+  )
+```
+
+### Répartition des lecteurs (niveaux 3-4) parmi les pauvres et les riches
+
+```{r}
+district3G_25 |> 
+  select(district, Pauv_tx_34, NonPauv_tx_34) |> 
+  kable()
+```
+
+### Qqs stats descriptives 
+
+```{r}
+district3G_25 |> 
+  tbl_summary(
+    include = c(Pauv_tx_34, NonPauv_tx_34),
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )
+  )
+```
+
+### Statistiques descriptives par borough
+
+```{r}
+district3G_25 |> 
+  tbl_summary(
+    include = c(Pauv_tx_34, NonPauv_tx_34),
+    by = borough ,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}" 
+    )
+  )
+```
+
+# SWD (handicap)
+
+Un tableau troublant : le croisement entre le quartile des notes moyennes au test (MSC) et des quartiles du pourcentage d'élèves capables de lire correctement (niveau 3 ou 4)
+
+```{r}
+SWD |> 
+  tbl_cross(
+    row = QSWD_MSC, 
+    col = QSWD_34, 
+    percent = "row"
+  )
 ```

@@ -1,3 +1,9 @@
+# Ce programme sert à importer tous les onglets du fichier excel des districts. Ce fichier n'a pas besoin de tourner à chaque fois puisqu'il écrit une base qui est appelée dans 1 et T01. 
+# TO DO : 
+# OK- En fait il faut conserver toutes les variables (et ne pas sélectionner comme j'ai fait ; ça ne sert à rien et on va avoir besoin des variables)
+# OK - Pour les quartiles il faut les calculer par année pour que ça ait du sens ! (là c'est toutes les années mélangées) 
+# - faire une variable de quartile du MSC (pour le moment pas faite sauf pour All car facile)
+
 library(readxl)
 library(arrow)
 library(janitor)
@@ -7,12 +13,22 @@ library(gtsummary)
 # Import Onglet All ----
 
 All <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
-                                                    sheet = "ELA - All") |> 
+                  sheet = "ELA - All") |> 
   clean_names() |> 
-  select(!c(starts_with("percent_level_"), "number_level_3_4", "category")) |> # suppression des pourcentages et variables agrégées 
-  rename(MSC = "mean_scale_score") |> 
+  # select(!c(starts_with("percent_level_"),  "category")) |> # suppression des pourcentages et variables agrégées 
+  rename(
+    MSC = "mean_scale_score", 
+    level_34 = number_level_3_4,
+    pct_level_34 = percent_level_3_4)  |> 
   rename_with(~ sub("^number_level","level", .x), starts_with("number_")) |> # renommage pour supprimer le remplacement de # par number_   
-  rename_with(~ str_glue("All_{.x}"), .cols = number_tested:level_4)  # renommage pour ajouter un préfixe All_ à toutes les variables qui varient d'un fichier à l'autre 
+  rename_with(~ str_replace(.x, "^percent", "pct"), starts_with("percent_")) |> # renommage de percent en pct pour le début des variables 
+  rename_with(~ str_glue("All_{.x}"), .cols = c(number_tested:pct_level_34)) |>  # renommage pour ajouter un préfixe All_ à toutes les variables qui varient d'un fichier à l'autre 
+  mutate(
+    QAll_MSC = str_glue("Q{ntile(All_MSC, 4)}"),
+    QAll_34  = str_glue("Q{ntile(All_pct_level_34, 4)}"),
+    across(starts_with("All_pct_level_"), \(x) round(x, 1)), 
+    .by = year
+  )  
 
 names(All)
 
@@ -21,46 +37,63 @@ names(All)
 SWD <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                   sheet = "ELA - SWD") |> 
   clean_names() |> 
-  select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
-  rename(MSC = "mean_scale_score") |> 
+#  select(!matches("^percent_level_[1-4]$")) |> 
+  rename(
+    MSC = "mean_scale_score", 
+    level_34 = number_level_3_4,
+    pct_level_34 = percent_level_3_4) |> 
   rename_with(~ sub("^number_level","level", .x), starts_with("number_")) |>
-  # rename_with(~ str_glue("SWD_{.x}"), .cols = number_tested:level_4) |> 
-  mutate(category = if_else(category == "Not SWD", "not_SWD", category)) |> 
+  rename_with(~ str_replace(.x, "^percent", "pct"), starts_with("percent_")) |> 
+  mutate(
+    category = if_else(category == "Not SWD", "not_SWD", category), 
+    MSC = round(MSC, 2)
+    ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
-    values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
+    values_from = !c(district, grade, year, category)
   ) |> 
   mutate(
-    txSWD = round(SWD_number_tested / (not_SWD_number_tested + SWD_number_tested) * 100, 1), 
-    QSWD = str_glue("Q{ntile(txSWD, 4)}")
+    txSWD = round(SWD_number_tested / (not_SWD_number_tested + SWD_number_tested) * 100, 1)) |> 
+  mutate(
+    QSWD = str_glue("Q{ntile(txSWD, 4)}"), 
+    QSWD_34 = str_glue("Q{ntile(SWD_pct_level_34, 4)}"), 
+    across(contains("SWD_pct_level_"), \(x) round(x, 1)), 
+    .by = year
   )
 
 names(SWD)
 
 
-# Import ongle Ethnicity --------
+# Import onglet Ethnicity --------
+
+# J'EN SUIS LA :  il faut terminer les quartile par year et normalement ethnicity est terminé
 
 Ethnicity <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                         sheet = "ELA - Ethnicity") |> 
   clean_names() |> 
-  select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
-  rename(MSC = "mean_scale_score") |> 
+  #select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
+  rename(
+    MSC = "mean_scale_score",
+    level_34 = number_level_3_4,
+    pct_level_34 = percent_level_3_4) |> 
   rename_with(~ sub("^number_level","level", .x), starts_with("number_")) |> 
+  rename_with(~ str_replace(.x, "^percent", "pct"), starts_with("percent_")) |> 
   mutate(
     category = case_when(
       category == "Multi-Racial" ~"Multi", 
       category == "Native American" ~"Natives", 
       .default = category
     ), 
-    across(where(is.character), ~ na_if(.x, "s"))  # je vire les "s" du non significatif ; remplacé par des NA
+    across(where(is.character), ~ na_if(.x, "s")),  # je vire les "s" du non significatif ; remplacé par des NA
+    MSC = round(as.numeric(MSC), 2),
     ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
-    values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
+    values_from = !c(district, grade, year, category)
   )|> 
   mutate(
     tested = Asian_number_tested + Black_number_tested + Hispanic_number_tested + Multi_number_tested + Natives_number_tested + White_number_tested, 
@@ -71,37 +104,63 @@ Ethnicity <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     txNatives = round(Natives_number_tested / tested * 100, 1), 
     txWhite = round(White_number_tested / tested * 100, 1), 
     txNonWhite = 100 - txWhite, 
-    QNonWhite = str_glue("Q{ntile(txNonWhite, 4)}")
+    QNonWhite = str_glue("Q{ntile(txNonWhite, 4)}"), 
+    across(contains("_pct_level_"), \(x) as.numeric(x)),
+    across(contains("_pct_level_"), \(x) round(x, 1)),
   ) |> 
-  select(!tested)
+  select(!tested) |> 
+  mutate(
+    QBlack = str_glue("Q{ntile(txBlack, 4)}"), 
+    QBlack_34 = str_glue("Q{ntile(Black_pct_level_34, 4)}"), 
+    QHispanic = str_glue("Q{ntile(txHispanic, 4)}"),
+    QHispanic_34 = str_glue("Q{ntile(Hispanic_pct_level_34, 4)}"),
+    QAsian = str_glue("Q{ntile(txAsian, 4)}"),
+    QAsian_34 = str_glue("Q{ntile(Asian_pct_level_34, 4)}"),
+    QWhite  = str_glue("Q{ntile(txWhite, 4)}"),
+    QWhite_34  = str_glue("Q{ntile(White_pct_level_34, 4)}"),
+    .by = year
+  )
+# rem : le Q_White_34 correspond au quartile du niveau des blancs entre les blancs ; pas si intéressant que ça je le crains 
+# faudra sans doute un jour plutôt faire le quartile du niveau de chaque race avant le pivot_wider 
 
 names(Ethnicity)
-# table(Ethnicity$QNonWhite)
+# Ethnicity |> select(starts_with("Black")) |> names()
+# Ethnicity |> select(contains("_pct_level_")) |> names()
+# Ethnicity |> select(contains("_pct_level_")) |> str()
+
 
 # Import onglet Gender-----
 
 Gender <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                         sheet = "ELA - Gender") |> 
   clean_names() |> 
-  select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
-  rename(MSC = "mean_scale_score") |> 
+  # select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
+  rename(
+    MSC = "mean_scale_score", 
+    level_34 = number_level_3_4,
+    pct_level_34 = percent_level_3_4) |> 
   rename_with(~ sub("^number_level","level", .x), starts_with("number_")) |> 
+  rename_with(~ str_replace(.x, "^percent", "pct"), starts_with("percent_")) |> 
   mutate(
     category = if_else(category == "Neither Female nor Male", "NonBinaire", category),
-    across(where(is.character), ~ na_if(.x, "s"))  # je vire les "s" du non significatif ; remplacé par des NA
+    across(where(is.character), ~ na_if(.x, "s")),  # je vire les "s" du non significatif ; remplacé par des NA
+    MSC = round(as.numeric(MSC), 2)
     ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
-    values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
+    values_from = !c(district, grade, year, category)
   ) |> 
-  rowwise() |> 
+  # rowwise() |> # je ne sais pas pourquoi j'ai mis ce rowwise ; je laisse une trace dans le doute 
   mutate(
     txFemale = round(Female_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1) , 
     txMale  = round(Male_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1) ,
     txNBinaire = round(NonBinaire_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1), 
-    QFemale = str_glue("Q{ntile(txFemale, 4)}")
+    QFemale = str_glue("Q{ntile(txFemale, 4)}"), # là c'est vraiment le quartile du pourcentage de femme par district que je calcule 
+    across(contains("_pct_level_"), \(x) as.numeric(x)),
+    across(contains("_pct_level_"), \(x) round(x, 1)),
+    .by = year
   ) |> # je fais le choix de laisser des NA pour les non binaires lorsqu'il n'y en a pas ; et des 0 lorsqu'il y en a mais qu'ils ne sont pas calculables
   ungroup()
 
@@ -114,24 +173,32 @@ str(Gender)
 EconomicStatus <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                              sheet = "ELA - Econ Status") |> 
   clean_names() |> 
-  select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
-  rename(MSC = "mean_scale_score") |> 
+  # select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
+  rename(
+    MSC = mean_scale_score, 
+    level_34 = number_level_3_4,
+    pct_level_34 = percent_level_3_4) |> 
   rename_with(~ sub("^number_level","level", .x), starts_with("number_")) |> 
+  rename_with(~ str_replace(.x, "^percent", "pct"), starts_with("percent_")) |> 
   mutate(
     category = case_when(
       category == "Econ Disadv" ~"Pauvres", 
       category == "Not Econ Disadv" ~"NonPauvres",
       .default = category
-    )) |> 
+    ),
+    MSC = round(as.numeric(MSC), 2)) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
-    values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
+    values_from = !c(district, grade, year, category)
   ) |> 
   mutate(
     txPauvres = round(Pauvres_number_tested  /(Pauvres_number_tested + NonPauvres_number_tested) * 100, 1),
-    QPauvres = str_glue("Q{ntile(txPauvres, 4)}")
+    QPauvres = str_glue("Q{ntile(txPauvres, 4)}"), 
+    across(contains("_pct_level_"), \(x) as.numeric(x)),
+    across(contains("_pct_level_"), \(x) round(x, 1)),
+    .by = year
   )
   
 
@@ -144,9 +211,13 @@ ELL <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
                   sheet = "ELA - ELL", 
                   col_types = "text") |>  # les colonnes étaient vues comme numériques alors qu'il y avait des "s" dans les lignes 1600 ce qui mettait le bazar ; j'importe tout en texte
   clean_names() |> 
-  select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
-  rename(MSC = "mean_scale_score") |> 
+  # select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
+  rename(
+    MSC = mean_scale_score, 
+    level_34 = number_level_3_4,
+    pct_level_34 = percent_level_3_4) |> 
   rename_with(~ sub("^number_level","level", .x), starts_with("number_")) |> 
+  rename_with(~ str_replace(.x, "^percent", "pct"), starts_with("percent_")) |> 
   mutate(
     category = case_when(
       category == "Current ELL" ~"CurrentELL", 
@@ -156,23 +227,26 @@ ELL <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     ), 
     across(where(is.character), ~ na_if(.x, "s")), 
     across(c(year, number_tested, MSC, level_1, level_2, level_3, level_4), as.numeric), # je remets les colonnes en numérique
-    ) |> 
+    MSC = round(as.numeric(MSC), 2)) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
-    values_from = c("number_tested", "MSC", "level_1", "level_2", "level_3", "level_4" )
+    values_from = !c(district, grade, year, category)
   ) |> 
   mutate(
     txCurrentELL = round(CurrentELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1), 
     txEverELL = round(EverELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1), 
     txNeverELL = round(NeverELL_number_tested / (CurrentELL_number_tested + EverELL_number_tested + NeverELL_number_tested) * 100, 1), 
-    QNonNativeSpeaker = str_glue("Q{ntile(100-txNeverELL, 4)}")
+    QNonNativeSpeaker = str_glue("Q{ntile(100-txNeverELL, 4)}"), 
+    across(contains("_pct_level_"), \(x) as.numeric(x)),
+    across(contains("_pct_level_"), \(x) round(x, 1)),
+    .by = year
   )
 
-# writexl::write_xlsx(ELL, "ajeter.xlsx")
+
 names(ELL)
-str(ELL)
+# str(ELL)
 
 
 # Merge des différents onglets + ajouts des variables communes--------
@@ -233,16 +307,3 @@ str(district)
 names(district)
 
 
-district3G |> 
-  filter(year == "2025") |> 
-  ggplot(aes(x = All_MSC)) +
-  geom_histogram(binwidth = 3)+
-  geom_vline(xintercept = quantile(district3G$All_MSC, 0.25, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)
-
-
-
-district3G |> 
-  filter(year == "2025") |> 
-  ggplot(aes(x = All_MSC)) +
-  geom_histogram(binwidth = 3)+
-  geom_vline(xintercept = quantile(district3G |> filter(year == "2025") |> pull(All_MSC), 0.25, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)
