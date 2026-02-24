@@ -2,20 +2,24 @@
 # TO DO : 
 # OK- En fait il faut conserver toutes les variables (et ne pas sélectionner comme j'ai fait ; ça ne sert à rien et on va avoir besoin des variables)
 # OK - Pour les quartiles il faut les calculer par année pour que ça ait du sens ! (là c'est toutes les années mélangées) 
-# - faire une variable de quartile du MSC (pour le moment pas faite sauf pour All car facile)
+# OK - faire une variable de quartile du MSC  pour All 
+# OK - faire une variable de quartile du score au test MSC inter la caractéristique du fichier (par exemple, savoir dans quel quartile de réussite se trouvent les enfants Black du 3ème district 3Grade)
+# OK - supprimer la ligne "All Grades" qui doit mettre le bazar dans le calcul des quartiles 
+
 
 library(readxl)
 library(arrow)
 library(janitor)
 library(tidyverse)
 library(gtsummary)
+library(gt)
 
 # Import Onglet All ----
 
 All <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                   sheet = "ELA - All") |> 
   clean_names() |> 
-  # select(!c(starts_with("percent_level_"),  "category")) |> # suppression des pourcentages et variables agrégées 
+  filter(grade != "All Grades") |> 
   rename(
     MSC = "mean_scale_score", 
     level_34 = number_level_3_4,
@@ -37,7 +41,7 @@ names(All)
 SWD <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                   sheet = "ELA - SWD") |> 
   clean_names() |> 
-#  select(!matches("^percent_level_[1-4]$")) |> 
+  filter(grade != "All Grades") |> 
   rename(
     MSC = "mean_scale_score", 
     level_34 = number_level_3_4,
@@ -48,6 +52,11 @@ SWD <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     category = if_else(category == "Not SWD", "not_SWD", category), 
     MSC = round(MSC, 2)
     ) |> 
+  mutate(
+    QMSC = str_glue("Q{ntile(MSC, 4)}"), # Calcul du quantile entre les SWD et les pas SWD avant le pivot_wider
+    QMSC = if_else(QMSC == "QNA", NA_character_, QMSC),
+    .by = c(year, grade)
+  ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
@@ -59,21 +68,19 @@ SWD <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
   mutate(
     QSWD = str_glue("Q{ntile(txSWD, 4)}"), 
     QSWD_34 = str_glue("Q{ntile(SWD_pct_level_34, 4)}"), 
+    QSWD_MSC = str_glue("Q{ntile(SWD_MSC, 4)}"),
     across(contains("SWD_pct_level_"), \(x) round(x, 1)), 
     .by = year
   )
 
 names(SWD)
 
-
 # Import onglet Ethnicity --------
-
-# J'EN SUIS LA :  il faut terminer les quartile par year et normalement ethnicity est terminé
 
 Ethnicity <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                         sheet = "ELA - Ethnicity") |> 
   clean_names() |> 
-  #select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
+  filter(grade != "All Grades") |> 
   rename(
     MSC = "mean_scale_score",
     level_34 = number_level_3_4,
@@ -88,7 +95,12 @@ Ethnicity <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     ), 
     across(where(is.character), ~ na_if(.x, "s")),  # je vire les "s" du non significatif ; remplacé par des NA
     MSC = round(as.numeric(MSC), 2),
-    ) |> 
+  ) |> 
+  mutate(
+    QMSC = str_glue("Q{ntile(MSC, 4)}"), # Calcul du quantile inter-race avant le pivot_wider
+    QMSC = if_else(QMSC == "QNA", NA_character_, QMSC),
+    .by = c(year, grade)
+  ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
@@ -120,8 +132,6 @@ Ethnicity <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     QWhite_34  = str_glue("Q{ntile(White_pct_level_34, 4)}"),
     .by = year
   )
-# rem : le Q_White_34 correspond au quartile du niveau des blancs entre les blancs ; pas si intéressant que ça je le crains 
-# faudra sans doute un jour plutôt faire le quartile du niveau de chaque race avant le pivot_wider 
 
 names(Ethnicity)
 # Ethnicity |> select(starts_with("Black")) |> names()
@@ -134,7 +144,7 @@ names(Ethnicity)
 Gender <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                         sheet = "ELA - Gender") |> 
   clean_names() |> 
-  # select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
+  filter(grade != "All Grades") |> 
   rename(
     MSC = "mean_scale_score", 
     level_34 = number_level_3_4,
@@ -146,17 +156,24 @@ Gender <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     across(where(is.character), ~ na_if(.x, "s")),  # je vire les "s" du non significatif ; remplacé par des NA
     MSC = round(as.numeric(MSC), 2)
     ) |> 
+  mutate(
+    QMSC = str_glue("Q{ntile(MSC, 4)}"), # Calcul du quantile inter-gender avant le pivot_wider
+    QMSC = if_else(QMSC == "QNA", NA_character_, QMSC),
+    .by = c(year, grade)
+  ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
     names_glue = "{category}_{.value}",
     values_from = !c(district, grade, year, category)
   ) |> 
-  # rowwise() |> # je ne sais pas pourquoi j'ai mis ce rowwise ; je laisse une trace dans le doute 
+  rowwise() |> # un rowwise pour le pourcentage d'hommes et de femmes par district (pour vérifier s'il y a des districts d'hommes comme de blancs)
   mutate(
     txFemale = round(Female_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1) , 
     txMale  = round(Male_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1) ,
-    txNBinaire = round(NonBinaire_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1), 
+    txNBinaire = round(NonBinaire_number_tested / sum(Female_number_tested, Male_number_tested, NonBinaire_number_tested, na.rm = TRUE) * 100, 1)) |> 
+  ungroup() |> 
+  mutate(
     QFemale = str_glue("Q{ntile(txFemale, 4)}"), # là c'est vraiment le quartile du pourcentage de femme par district que je calcule 
     across(contains("_pct_level_"), \(x) as.numeric(x)),
     across(contains("_pct_level_"), \(x) round(x, 1)),
@@ -166,14 +183,14 @@ Gender <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
 
 
 names(Gender)
-str(Gender)
+# str(Gender)
 
 # Import onglet Statut économique ----------
 
 EconomicStatus <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                              sheet = "ELA - Econ Status") |> 
   clean_names() |> 
-  # select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
+  filter(grade != "All Grades") |> 
   rename(
     MSC = mean_scale_score, 
     level_34 = number_level_3_4,
@@ -187,6 +204,11 @@ EconomicStatus <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
       .default = category
     ),
     MSC = round(as.numeric(MSC), 2)) |> 
+  mutate(
+      QMSC = str_glue("Q{ntile(MSC, 4)}"), # Calcul du quantile inter-statuts économiques avant le pivot_wider
+      QMSC = if_else(QMSC == "QNA", NA_character_, QMSC),
+      .by = c(year, grade)
+    ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
@@ -203,7 +225,7 @@ EconomicStatus <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
   
 
 names(EconomicStatus)
-table(EconomicStatus$QPauvres)
+# table(EconomicStatus$QPauvres)
 
 # Import onglet ELL-----
 
@@ -211,7 +233,7 @@ ELL <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
                   sheet = "ELA - ELL", 
                   col_types = "text") |>  # les colonnes étaient vues comme numériques alors qu'il y avait des "s" dans les lignes 1600 ce qui mettait le bazar ; j'importe tout en texte
   clean_names() |> 
-  # select(!c(starts_with("percent_level_"), "number_level_3_4")) |>   
+  filter(grade != "All Grades") |> 
   rename(
     MSC = mean_scale_score, 
     level_34 = number_level_3_4,
@@ -228,6 +250,11 @@ ELL <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
     across(where(is.character), ~ na_if(.x, "s")), 
     across(c(year, number_tested, MSC, level_1, level_2, level_3, level_4), as.numeric), # je remets les colonnes en numérique
     MSC = round(as.numeric(MSC), 2)) |> 
+  mutate(
+    QMSC = str_glue("Q{ntile(MSC, 4)}"), # Calcul du quantile inter-ELL avant le pivot_wider
+    QMSC = if_else(QMSC == "QNA", NA_character_, QMSC),
+    .by = c(year, grade)
+  ) |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 
@@ -259,7 +286,7 @@ district <- All |>
   left_join(ELL, by = c("district", "grade", "year")) |> 
   mutate(
     across(where(is.character), ~ na_if(.x, "s")),
-    across(where(is.factor),    ~ factor(na_if(as.character(.x), "s"))), # je supprime les "s" lorsque les cases n'étaient pas significatives 
+    # across(where(is.factor),    ~ factor(na_if(as.character(.x), "s"))), # je supprime les "s" lorsque les cases n'étaient pas significatives 
     phase = case_when(
       district %in% c("05", "11", "12", "14", "16", "19", "20", "21", "22", "23", "25", "26",  "29", "30" , "32") ~"1", 
       district %in% c("01", "02", "03", "04", "06", "07", "08", "09", "10", "13", "15", "17", "18", "24", "27", "28", "31") ~"2", 
@@ -276,14 +303,21 @@ district <- All |>
       .default = str_glue("{district}_pb")), 
     
     borough = case_when(
-      district %in% c("01", "02", "03", "04", "05", "06") ~"MANHATTAN", 
-      district %in% c("07", "08", "09", "10", "11", "12") ~"BRONX", 
-      district %in% c("13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "32") ~"BROOKLYN",
-      district %in% c("24", "25", "26", "27", "28", "29", "30") ~"QUEENS", 
-      district %in% c("31") ~"STATEN",
+      district %in% c("01", "02", "03", "04", "05", "06") ~"Manhattan", 
+      district %in% c("07", "08", "09", "10", "11", "12") ~"Bronx", 
+      district %in% c("13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "32") ~"Brooklyn",
+      district %in% c("24", "25", "26", "27", "28", "29", "30") ~"Queens", 
+      district %in% c("31") ~"Staten",
       .default = str_glue("{district}_pb")) , 
     
-    across(where(is.character) & !c(district, grade, book, borough, starts_with("Q")), as.numeric)  # je remets toutes les variables qui devraient être en numérique en numérique 
+    borough = factor(borough, 
+                     levels = c("Manhattan", "Brooklyn", "Staten", "Queens", "Bronx")),
+
+    across(
+      where(\(x) is.character(x) & !inherits(x, "glue")) & 
+        !c(district, grade, book, borough, starts_with("Q")),
+      as.numeric
+    )  # je remets toutes les variables qui devraient être en numérique en numérique (mais pas toutes celles que j'ai créées en Q1, Q2, etc. )
   ) |> 
   relocate(phase, book, borough, .after = year)
 

@@ -29,9 +29,19 @@ district <- read_parquet("data/district.parquet")
 
 Remarques préalables :
 
--   j'ai fait le choix de faire les stats de description des districts à partir du fichier où il n'y a plus que les 3rd grade. Se souvenir que les quartiles ont été calculé sur toutes les classes en même temps (ça ne doit pas changer grand chose mais en cas de publication il faudrait sans doute faire le filtre avant le calcul des quartiles).
-
 -   20/2/26 : attention, j'ai réalisé que je calculais les quartiles pour toutes les années mélangées, désormais les quartiles sont calculés par année. L'effet regardé juste pour SWD_34 est important : entre 25% et 60% des quartiles ont été modifié (selon les quartiles)
+
+-   J'ai calculé plusieurs types de quartiles (exemple pour SWD qui n'a que deux possibilités) :
+
+    -   QSWD qui correspond aux quartiles du pourcentage de personnes handicapées (SWD) dans un district par année
+
+    -   QSWD_34 qui correspond aux quartiles du pourcentages d'enfants dans un district, porteur d'un handicap, et qui ont atteint un niveau correct de lecteur (level 3 ou 4 en lecture) ; toujours calculé par année
+
+    -   QSWD_MSC qui correspond aux quartiles des notes au test MSC parmi les élèves porteurs d'un handicap ; toujours par année *(je ne l'ai fait que pour SWD car pas sûr que ça nous intéresse)*
+
+    -   SWD_QMSC : qui correspond aux quartiles des notes des élèves porteurs d'un handicap au test MSC parmi **tous** les élèves de la base
+
+-   Par ailleurs, j'ai également calculé le tx de SWD (autrement dit le pourcentage de personne considérées comme SWD) par ligne : txSWD
 
 ```{r}
 district3G <- district |> 
@@ -316,11 +326,11 @@ district3G |>
   coord_cartesian(clip = "off")  # laisse un peu de place pour les labels à droite
 ```
 
-### Evolution du tx34 
+### Evolution du tx34
 
 ```{r}
 district3G |> group_by(year) |> 
-  summarize(moy = mean(All_tx_34, na.rm = TRUE)) |> 
+  summarize(moy = mean(All_pct_level_34, na.rm = TRUE)) |> 
   ggplot(aes(x = year, y = moy)) + 
   geom_col()
 ```
@@ -441,16 +451,16 @@ district3G_25 |>
 
 ```{r}
 district3G_25 |> 
-  select(district, Pauv_tx_34, NonPauv_tx_34) |> 
+  select(district, Pauvres_pct_level_34, NonPauvres_pct_level_34) |> 
   kable()
 ```
 
-### Qqs stats descriptives 
+### Qqs stats descriptives
 
 ```{r}
 district3G_25 |> 
   tbl_summary(
-    include = c(Pauv_tx_34, NonPauv_tx_34),
+    include = c(Pauvres_pct_level_34, NonPauvres_pct_level_34),
     type = all_continuous() ~"continuous2",
     statistic = all_continuous2() ~c(
       "{mean} ({sd})",
@@ -466,7 +476,7 @@ district3G_25 |>
 ```{r}
 district3G_25 |> 
   tbl_summary(
-    include = c(Pauv_tx_34, NonPauv_tx_34),
+    include = c(Pauvres_pct_level_34, NonPauvres_pct_level_34),
     by = borough ,
     type = all_continuous() ~"continuous2",
     statistic = all_continuous2() ~c(
@@ -482,10 +492,23 @@ district3G_25 |>
 Un tableau troublant : le croisement entre le quartile des notes moyennes au test (MSC) et des quartiles du pourcentage d'élèves capables de lire correctement (niveau 3 ou 4)
 
 ```{r}
-SWD |> 
+district |> 
   tbl_cross(
     row = QSWD_MSC, 
     col = QSWD_34, 
-    percent = "row"
+    percent = "row", 
+    statistic = "{p}% ({n})"
   )
+```
+
+### Pourcentage de SWD par borough (toutes années et grade)
+
+```{r}
+district |> 
+  tbl_summary(
+    include = txSWD, 
+    by = borough
+  )
+
+
 ```
