@@ -17,6 +17,10 @@ execute:
 ---
 
 ```{r}
+#| message: false
+#| echo: false
+#| error: false
+
 library(tidyverse)
 library(arrow)
 library(gtsummary)
@@ -28,6 +32,8 @@ district <- read_parquet("data/district.parquet")
 ```
 
 Remarques préalables :
+
+-   J'ai mis des vérifications de codage à la fin du document pour que quelqu'un vérifie à partir du mémoire de la page 8 du rapport Synthèse mission NY 2024 ; une fois que c'est fait je supprime ces vérifications du document
 
 -   20/2/26 : attention, j'ai réalisé que je calculais les quartiles pour toutes les années mélangées, désormais les quartiles sont calculés par année. L'effet regardé juste pour SWD_34 est important : entre 25% et 60% des quartiles ont été modifié (selon les quartiles)
 
@@ -51,72 +57,9 @@ district3G_25 <- district3G |>
   filter(year == "2025")
 ```
 
-# Quelques vérifs :
+# Descriptif du fichier
 
-## Districts et boroughs
-
-### Petite vérification que les districts sont dans les bons borough :
-
-**attention : staten island n'est constitué que d'un district**
-
-```{r}
-district3G |> 
-  select(borough, district) |> 
-  distinct() |> 
-  arrange(borough) |> 
-  kable()
-```
-
-## Districts et phases
-
-```{r}
-district3G |> 
-  select(phase, district) |> 
-  distinct() |> 
-  arrange(phase) |> 
-  kable()
-```
-
-## Nbe d'élèves par phase en 2025
-
-```{r}
-district3G |> 
-  # mutate(phase = factor(phase, 
-  #                       levels = c(1, 2), 
-  #                       labels = c("phase_1", "phase_2"))) |> 
-  filter(year == "2025") |> 
-  summarize(
-    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
-    .by = phase
-  ) |> 
-  arrange(phase) |> 
-  mutate(
-    pct = Nbeeleve / sum(Nbeeleve, na.rm = T),
-    Nbeeleve = number(Nbeeleve, big.mark = " "), 
-    pct = percent(pct, accuracy = 0.1, suffix = " %")) |>  # nécessite le package scales
-  kable(align = "r")  # Aligne toutes les colonnes à droite
-  
-```
-
-## Districts et méthodes de lecture
-
-**Attention ; je viens de remarquer (après le recodage) que le district 15 a deux méthodes différentes :**
-
--   Into reading pour schools with dual language programs,
-
--   Wit & Wisdom pour écoles sans programmes bilingues,
-
-    *Pour le moment le district 15 est codé Wit&Wisdom*
-
-```{r}
-district3G |> 
-  select(book, district) |> 
-  distinct() |> 
-  arrange(book) |> 
-  kable()
-```
-
-# Les districts
+## Les districts
 
 ### Nombre de districts par borough
 
@@ -132,7 +75,7 @@ district3G |>
 
 ### Quelques statistiques de base sur le nombre d'élèves par districts
 
-(je ne garde que l'année 2025 qui est notre année d'intérêt histoire de vérifier qu'on ne va pas avoir des effectifs trop faibles etc) :
+(je ne garde que l'année 2025 et le 3ème grade qui est notre année d'intérêt histoire de vérifier qu'on ne va pas avoir des effectifs trop faibles etc) :
 
 ```{r}
 district3G |> 
@@ -149,7 +92,9 @@ district3G |>
   )
 ```
 
-### Nombre d'élèves testés par borough
+## Les borough
+
+### Nombre d'élèves testés par borough (3ème grade en 2025)
 
 ```{r}
 district3G |> 
@@ -166,9 +111,436 @@ district3G |>
 
 ```
 
+### Caractéristique des élèves par borough
+
+#### Part des enfants par origine ethnique et par borough
+
+Les pourcentages sont en ligne
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeBlack = sum(Black_number_tested, na.rm = TRUE), 
+    NbeWhite = sum(White_number_tested, na.rm = TRUE), 
+    NbeHispanic = sum(Hispanic_number_tested, na.rm = TRUE), , 
+    NbeAsian = sum(Asian_number_tested, na.rm = TRUE), 
+    .by = c(borough)
+  ) |> 
+  mutate(
+    pctBlack = round(NbeBlack / Nbeeleve * 100, 1),
+    pctWhite = round(NbeWhite / Nbeeleve * 100, 1), 
+    pctHispanic = round(NbeHispanic / Nbeeleve * 100, 1), 
+    pctAsian = round(NbeAsian / Nbeeleve * 100, 1), 
+  ) |> 
+  arrange(borough) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants par genre
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeBoys = sum(Male_number_tested, na.rm = TRUE), 
+    NbeGirls = sum(Female_number_tested, na.rm = TRUE), 
+    .by = c(borough)
+  ) |> 
+  mutate(
+    pctBoys = round(NbeBoys / Nbeeleve * 100, 1),
+    pctGirls = round(NbeGirls / Nbeeleve * 100, 1) 
+  ) |> 
+  arrange(borough) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants pauvres
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbePauvres = sum(Pauvres_number_tested, na.rm = TRUE), 
+    NbeNonPauvres = sum(NonPauvres_number_tested, na.rm = TRUE), 
+    .by = borough
+  ) |> 
+  mutate(
+    pctPauvres = round(NbePauvres / Nbeeleve * 100, 1),
+    pctNonPauvres = round(NbeNonPauvres / Nbeeleve * 100, 1) 
+  ) |> 
+  arrange(borough) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants handicapés
+
+Intéressant : les handicapés sont à la fois dans des quartiers riches et dans des quartiers pauvres : il pourrait y avoir polarisation entre des handicaps "lourds" dans les quartiers pauvres et des handicaps d'apprentissage (dys et troubles du comportement) dans les quartiers riches ? 
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeSWD = sum(SWD_number_tested, na.rm = TRUE), 
+    .by = c(borough)
+  ) |> 
+  mutate(
+    pctSWD = round(NbeSWD / Nbeeleve * 100, 1),
+  ) |> 
+  arrange(borough) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants ELL
+
+Les natives english speakers sont dans les quartiers riches (malgré la présence des ambassades ;-))
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeCurrentELL = sum(CurrentELL_number_tested, na.rm = TRUE), 
+    NbeEverELL = sum(EverELL_number_tested, na.rm = TRUE), 
+    NbeNeverELL = sum(NeverELL_number_tested, na.rm = TRUE),
+    .by = c(borough)
+  ) |> 
+  mutate(
+    pctCurrentELL = round(NbeCurrentELL / Nbeeleve * 100, 1),
+    pctEverELL = round(NbeEverELL / Nbeeleve * 100, 1),
+    pctNeverELL = round(NbeNeverELL / Nbeeleve * 100, 1)
+  ) |> 
+  arrange(borough) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+
+
+
+## Les phases de la mise en oeuvre du changement
+
+### Nbe d'élèves par phase en 2025
+
+```{r}
+district3G |> 
+  filter(year == "2025") |> 
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    .by = phase
+  ) |> 
+  arrange(phase) |> 
+  mutate(
+    pct = Nbeeleve / sum(Nbeeleve, na.rm = T),
+    Nbeeleve = number(Nbeeleve, big.mark = " "), 
+    pct = percent(pct, accuracy = 0.1, suffix = " %")) |>  # nécessite le package scales
+  kable(align = "r")  # Aligne toutes les colonnes à droite
+  
+```
+
+### Répartition des phases dans les borough
+
+La répartition n'est pas du tout égalitaire en fonction des borough. Manhattan (et dans une moindre mesure le Bronx) ont clairement fait le choix de la phase 2, Brooklyn de la phase 1. On n'a aucune idée de l'effet sur la structure de l'échantillon pour chaque phase.
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    .by = c(borough, phase)
+  ) |> 
+  uncount(Nbeeleve) |>  # Crée Nbeeleve lignes pour chaque combinaison
+  tbl_cross(
+    row = phase, 
+    col = borough, 
+    percent = "column", 
+    statistic = "{p}% ({n})")
+```
+
+### Caractéristique des élèves par phase
+
+#### Part des enfants par origine ethnique et par phase
+
+Les asiatiques sont phase 1, les hispanic phase 2
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeBlack = sum(Black_number_tested, na.rm = TRUE), 
+    NbeWhite = sum(White_number_tested, na.rm = TRUE), 
+    NbeHispanic = sum(Hispanic_number_tested, na.rm = TRUE), , 
+    NbeAsian = sum(Asian_number_tested, na.rm = TRUE), 
+    .by = c(phase)
+  ) |> 
+  mutate(
+    pctBlack = round(NbeBlack / Nbeeleve * 100, 1),
+    pctWhite = round(NbeWhite / Nbeeleve * 100, 1), 
+    pctHispanic = round(NbeHispanic / Nbeeleve * 100, 1), 
+    pctAsian = round(NbeAsian / Nbeeleve * 100, 1), 
+  ) |> 
+  arrange(phase) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants par genre
+
+Aucun effet du genre ; apparemment personne n'a jugé utile d'épargner à son fils une expérimentation.
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeBoys = sum(Male_number_tested, na.rm = TRUE), 
+    NbeGirls = sum(Female_number_tested, na.rm = TRUE), 
+    .by = c(phase)
+  ) |> 
+  mutate(
+    pctBoys = round(NbeBoys / Nbeeleve * 100, 1),
+    pctGirls = round(NbeGirls / Nbeeleve * 100, 1) 
+  ) |> 
+  arrange(phase) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants pauvres
+
+Rassurant : on commence les expérimentations sur les pauvres, mais pas de manière massive.
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbePauvres = sum(Pauvres_number_tested, na.rm = TRUE), 
+    NbeNonPauvres = sum(NonPauvres_number_tested, na.rm = TRUE), 
+    .by = c(phase)
+  ) |> 
+  mutate(
+    pctPauvres = round(NbePauvres / Nbeeleve * 100, 1),
+    pctNonPauvres = round(NbeNonPauvres / Nbeeleve * 100, 1) 
+  ) |> 
+  arrange(phase) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants handicapés
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeSWD = sum(SWD_number_tested, na.rm = TRUE), 
+    .by = c(phase)
+  ) |> 
+  mutate(
+    pctSWD = round(NbeSWD / Nbeeleve * 100, 1),
+  ) |> 
+  arrange(phase) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants ELL
+
+Les natives english speakers sont 9 points plus nombreux en phase 2.
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeCurrentELL = sum(CurrentELL_number_tested, na.rm = TRUE), 
+    NbeEverELL = sum(EverELL_number_tested, na.rm = TRUE), 
+    NbeNeverELL = sum(NeverELL_number_tested, na.rm = TRUE),
+    .by = c(phase)
+  ) |> 
+  mutate(
+    pctCurrentELL = round(NbeCurrentELL / Nbeeleve * 100, 1),
+    pctEverELL = round(NbeEverELL / Nbeeleve * 100, 1),
+    pctNeverELL = round(NbeNeverELL / Nbeeleve * 100, 1)
+  ) |> 
+  arrange(phase) |> # à koz de .by qui est débile
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+## Les différentes méthodes et leur livre
+### Répartition des méthodes de lecture par borough
+(je ne garde que l'année 2025 et le 3ème grade qui est notre année d'intérêt histoire de vérifier qu'on ne va pas avoir des effectifs trop faibles etc) :
+```{r}
+district3G_25 |> 
+  tbl_cross(row = borough, 
+            col = book, 
+            percent = "row")
+```
+
+### Nombre d'élèves par méthode / livre 
+
+```{r}
+district3G_25 |> 
+  summarize(Nbeeleves = sum(All_number_tested, na.rm = TRUE),
+            .by = book) |> 
+  mutate(pct = Nbeeleves / sum(Nbeeleves),
+         Nbeeleves = number(Nbeeleves, big.mark = " "), 
+         pct = percent(pct, accuracy = 0.1, suffix = " %")) |>  # nécessite le package scales
+  kable(align = "r")  # Aligne toutes les colonnes à droite) |> 
+  
+
+```
+
+
+
+### Répartition des livres selon les phases
+Les livres  minoritaires ont surtout été introduit en phase 2 ; into est autant en phase 1 que 2
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    .by = c(book, phase)
+  ) |> 
+  uncount(Nbeeleve) |>  # Crée Nbeeleve lignes pour chaque combinaison
+  tbl_cross(
+    row = phase, 
+    col = book, 
+    percent = "column", 
+    statistic = "{p}% ({n})")
+```
+
+### Caractéristique des élèves par livre
+
+#### Part des enfants par origine ethnique et par phase
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeBlack = sum(Black_number_tested, na.rm = TRUE), 
+    NbeWhite = sum(White_number_tested, na.rm = TRUE), 
+    NbeHispanic = sum(Hispanic_number_tested, na.rm = TRUE), , 
+    NbeAsian = sum(Asian_number_tested, na.rm = TRUE), 
+    .by = c(book)
+  ) |> 
+  mutate(
+    pctBlack = round(NbeBlack / Nbeeleve * 100, 1),
+    pctWhite = round(NbeWhite / Nbeeleve * 100, 1), 
+    pctHispanic = round(NbeHispanic / Nbeeleve * 100, 1), 
+    pctAsian = round(NbeAsian / Nbeeleve * 100, 1), 
+  ) |> 
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+Le même tableau mais avec les % dans l'autre sens : 
+Où on voit mieux que les blancs sont surreprésentés pour la méthode Wit & Wisdom et les blacks et Hispanic dans EL Education. Inot Reading restant néanmoins toujours ultra majoritaire. 
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeBlack = sum(Black_number_tested, na.rm = TRUE), 
+    NbeWhite = sum(White_number_tested, na.rm = TRUE), 
+    NbeHispanic = sum(Hispanic_number_tested, na.rm = TRUE), , 
+    NbeAsian = sum(Asian_number_tested, na.rm = TRUE), 
+    .by = c(book)
+  ) |> 
+  mutate(
+    pctBlack = round(NbeBlack / sum(NbeBlack) * 100, 1),
+    pctWhite = round(NbeWhite / sum(NbeWhite) * 100, 1), 
+    pctHispanic = round(NbeHispanic / sum(NbeHispanic) * 100, 1), 
+    pctAsian = round(NbeAsian / sum(NbeAsian) * 100, 1), 
+  ) |> 
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+
+
+### Part des enfants par genre
+
+toujours rien de marquant sur le genre 
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeBoys = sum(Male_number_tested, na.rm = TRUE), 
+    NbeGirls = sum(Female_number_tested, na.rm = TRUE), 
+    .by = c(book)
+  ) |> 
+  mutate(
+    pctBoys = round(NbeBoys / Nbeeleve * 100, 1),
+    pctGirls = round(NbeGirls / Nbeeleve * 100, 1) 
+  ) |> 
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants pauvres
+Les riches privilégient assez nettement la méthode Wit & Wisdom ! 
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbePauvres = sum(Pauvres_number_tested, na.rm = TRUE), 
+    NbeNonPauvres = sum(NonPauvres_number_tested, na.rm = TRUE), 
+    .by = c(book)
+  ) |> 
+  mutate(
+    pctPauvres = round(NbePauvres / Nbeeleve * 100, 1),
+    pctNonPauvres = round(NbeNonPauvres / Nbeeleve * 100, 1) 
+  ) |> 
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants handicapés
+Rien de notable
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeSWD = sum(SWD_number_tested, na.rm = TRUE), 
+    .by = c(book)
+  ) |> 
+  mutate(
+    pctSWD = round(NbeSWD / Nbeeleve * 100, 1),
+  ) |> 
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+#### Part des enfants ELL
+
+Les ELL sont encore plus que les autres avec le livre Into Reading 
+
+```{r}
+district3G_25 |>
+  summarize(
+    Nbeeleve = sum(All_number_tested, na.rm = TRUE),
+    NbeCurrentELL = sum(CurrentELL_number_tested, na.rm = TRUE), 
+    NbeEverELL = sum(EverELL_number_tested, na.rm = TRUE), 
+    NbeNeverELL = sum(NeverELL_number_tested, na.rm = TRUE),
+    .by = c(book)
+  ) |> 
+  mutate(
+    pctCurrentELL = round(NbeCurrentELL / sum(NbeCurrentELL) * 100, 1),
+    pctEverELL = round(NbeEverELL / sum(NbeEverELL) * 100, 1),
+    pctNeverELL = round(NbeNeverELL / sum(NbeNeverELL) * 100, 1)
+  ) |> 
+  select(!starts_with("Nbe")) |> 
+  kable()
+```
+
+
 ## Résultats du test de lecture
 
-### Quelsques stats descriptives sur le résultat au test :
+### Quelques stats descriptives sur le résultat au test :
 
 ```{r}
 district3G |> 
@@ -511,4 +883,50 @@ district |>
   )
 
 
+```
+
+# Quelques vérifs :
+
+**Une fois que quelqu'un m'a dit qu'il a vérifié et que je n'ai pas fait d'erreur je sors ces vérifications de la sortie propre**
+
+## Districts et boroughs
+
+### Petite vérification que les districts sont dans les bons borough :
+
+**attention : staten island n'est constitué que d'un district**
+
+```{r}
+district3G |> 
+  select(borough, district) |> 
+  distinct() |> 
+  arrange(borough) |> 
+  kable()
+```
+
+## Districts et phases
+
+```{r}
+district3G |> 
+  select(phase, district) |> 
+  distinct() |> 
+  arrange(phase) |> 
+  kable()
+```
+
+## Districts et méthodes de lecture
+
+**Attention ; je viens de remarquer (après le recodage) que le district 15 a deux méthodes différentes :**
+
+-   Into reading pour schools with dual language programs,
+
+-   Wit & Wisdom pour écoles sans programmes bilingues,
+
+    *Pour le moment le district 15 est codé Wit&Wisdom*
+
+```{r}
+district3G |> 
+  select(book, district) |> 
+  distinct() |> 
+  arrange(book) |> 
+  kable()
 ```
