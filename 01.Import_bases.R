@@ -186,6 +186,7 @@ names(Gender)
 # str(Gender)
 
 # Import onglet Statut économique ----------
+## rem : la variable QMSC est faite sur des quantiles pondérés mais après test, il n'y a aucun écart de résultat entre les deux variables ; la pondération était-elle inutile ?  
 
 EconomicStatus <- read_excel("data/district-ela-results-2018-2025-public.xlsx", 
                              sheet = "ELA - Econ Status") |> 
@@ -204,11 +205,26 @@ EconomicStatus <- read_excel("data/district-ela-results-2018-2025-public.xlsx",
       .default = category
     ),
     MSC = round(as.numeric(MSC), 2)) |> 
+  group_by(year, grade) |> 
   mutate(
-      QMSC = str_glue("Q{ntile(MSC, 4)}"), # Calcul du quantile inter-statuts économiques avant le pivot_wider
-      QMSC = if_else(QMSC == "QNA", NA_character_, QMSC),
-      .by = c(year, grade)
+    # Calculer les seuils des quartiles pondérés
+    Q1 = Hmisc::wtd.quantile(MSC, weights = number_tested, probs = 0.25, na.rm = TRUE)[1],
+    Q2 = Hmisc::wtd.quantile(MSC, weights = number_tested, probs = 0.50, na.rm = TRUE)[1],
+    Q3 = Hmisc::wtd.quantile(MSC, weights = number_tested, probs = 0.75, na.rm = TRUE)[1],
+    
+    # Assigner chaque observation à son quartile
+    QMSC = case_when(
+      is.na(MSC) ~ NA_character_,
+      MSC <= Q1 ~ "Q1",
+      MSC <= Q2 ~ "Q2",
+      MSC <= Q3 ~ "Q3",
+      MSC >  Q3 ~ "Q4"),
+      
+    QMSC2 = str_glue("Q{ntile(MSC, 4)}"), # Calcul du quantile inter-statuts économiques avant le pivot_wider
+    QMSC2 = if_else(QMSC == "QNA", NA_character_, QMSC),
+
     ) |> 
+      ungroup() |> 
   pivot_wider(
     id_cols = c(district, grade, year), 
     names_from = category, 

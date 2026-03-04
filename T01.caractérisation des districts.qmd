@@ -27,6 +27,7 @@ library(gtsummary)
 library(gt)
 library(kableExtra)
 library(scales)
+library(survey)
 theme_gtsummary_language(language = "fr", decimal.mark = ",", big.mark = " ")
 district <- read_parquet("data/district.parquet")
 ```
@@ -459,7 +460,7 @@ district3G_25 |>
 
 
 
-### Part des enfants par genre
+#### Part des enfants par genre
 
 toujours rien de marquant sur le genre 
 
@@ -542,6 +543,8 @@ district3G_25 |>
 
 ### Quelques stats descriptives sur le résultat au test :
 
+Le test de lecture semble très peu discriminant, au moins par district, avec un écart de note maximale de seulement 25 points (sur au moins 500). 
+
 ```{r}
 district3G |> 
   filter(year == "2025") |> 
@@ -599,13 +602,16 @@ district3G |>
 ```
 
 ### En séparant phase 1 et phase 2
-
 ```{r}
-district3G |>
+#| include: false
+
+# j'ai dû couper le chunck en deux car sinon j'avais une sortie moche de la console qui s'intercalait 
+
+tableau <- district3G |>
   tbl_strata(
     strata = phase,
-    .combine_with = "tbl_stack",       # empile phase 1 puis phase 2
-    .stack_group_header = TRUE,        # ajoute un en-tête pour chaque phase
+    .combine_with = "tbl_stack",
+    .stack_group_header = TRUE,
     .tbl_fun = ~ .x |>
       tbl_summary(
         include   = c(All_MSC, White_MSC, Black_MSC, Hispanic_MSC, Asian_MSC),
@@ -620,7 +626,12 @@ district3G |>
   )
 ```
 
-### Évolution du MSC en G3 de 2018 à 2025 selon les districts
+```{r}
+tableau
+```
+
+
+### Évolution du MSC en G3 de 2018 à 2025 
 
 ```{r}
 district3G |> 
@@ -631,6 +642,7 @@ district3G |>
   )
 ```
 
+### Évolution du MSC en G3 de 2018 à 2025 selon les districts
 ```{r}
 
 district3G |>
@@ -698,21 +710,290 @@ district3G |>
   coord_cartesian(clip = "off")  # laisse un peu de place pour les labels à droite
 ```
 
-### Evolution du tx34
+## Niveau correct de lecture (niveau 3 ou 4)
+
+### Evolution du tx34 (graphique)
 
 ```{r}
-district3G |> group_by(year) |> 
+district3G |> 
+  group_by(year) |> 
   summarize(moy = mean(All_pct_level_34, na.rm = TRUE)) |> 
   ggplot(aes(x = year, y = moy)) + 
   geom_col()
 ```
+
+### Evolution du tx34 (tableau)
+
+```{r}
+district3G |> 
+  group_by(year) |> 
+  summarize(moy = round(mean(All_pct_level_34, na.rm = TRUE), 1)) |> 
+  kable()
+
+```
+
+### Quelques stats descriptives du taux de 3-4
+
+Les écarts entre faibles et forts semblent beaucoup plus faciles à utiliser 
+
+```{r}
+district3G_25_svy <- svydesign(id = ~district, data = district3G_25, weights = district3G_25$All_number_tested)
+
+district3G_25_svy |> 
+  tbl_svysummary(
+    include = All_pct_level_34,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )  
+  ) |> 
+  as_gt() |> 
+  tab_source_note("pondéré ; année 25 et 3G")
+```
+
+### Distribution de tx de 34 pour l'année 2025
+```{r}
+district3G_25 |> 
+  ggplot(aes(x = All_pct_level_34)) +
+  geom_histogram(binwidth = 3)+
+   geom_vline(xintercept = quantile(district3G_25$All_pct_level_34, 0.25, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+   geom_vline(xintercept = quantile(district3G_25$All_pct_level_34, 0.5, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+   geom_vline(xintercept = quantile(district3G_25$All_pct_level_34, 0.75, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+   geom_vline(xintercept = mean(district3G_25$All_pct_level_34,na.rm = TRUE), color = "red", linetype = "dashed", linewidth = 1)
+```
+### Évolution du score des G3 en fonction du statut économique : 
+
+La réforme aurait des effets comparables sur les riches et les pauvres et donc ne permettrait pas de diminuer les écarts ; juste d'améliorer les capacités de lecture des deux groupes
+
+```{r}
+district3G |> 
+  tbl_summary(
+    include = c(All_pct_level_34, Pauvres_pct_level_34, NonPauvres_pct_level_34), 
+    by = year, 
+    statistic =  ~"{mean} | {median} \n({p25} - {p75})"
+  )
+```
+### Évolution du score des G3 en fonction du statut économique (version pondérée) :
+Là l'effet sur les pauvres est légèrement supérieur que sur les riches (médiane à + 16.4 vs +11.6). 
+_ça vaut le coup de pondérer mais c'est franchement lour à faire_
+```{r}
+# Calculer les statistiques pondérées pour les 3 variables
+district3G |> 
+  mutate(
+    All_pct_level_34 = All_level_34 / All_number_tested,
+    Pauvres_pct_level_34 = Pauvres_level_34 / Pauvres_number_tested,
+    NonPauvres_pct_level_34 = NonPauvres_level_34 / NonPauvres_number_tested
+  ) |>
+  filter(!is.na(All_number_tested)) |>
+  pivot_longer(
+    cols = c(All_pct_level_34, Pauvres_pct_level_34, NonPauvres_pct_level_34),
+    names_to = "Variable",
+    values_to = "pct"
+  ) |>
+  mutate(
+    # Récupérer les poids correspondants
+    poids = case_when(
+      Variable == "All_pct_level_34" ~ All_number_tested,
+      Variable == "Pauvres_pct_level_34" ~ Pauvres_number_tested,
+      Variable == "NonPauvres_pct_level_34" ~ NonPauvres_number_tested
+    )
+  ) |>
+  filter(!is.na(pct), !is.na(poids)) |>
+  group_by(year, Variable) |>
+  summarize(
+    Moyenne = weighted.mean(pct, w = poids, na.rm = TRUE),
+    Médiane = Hmisc::wtd.quantile(pct, weights = poids, probs = 0.5, na.rm = TRUE)[1],
+    Q25 = Hmisc::wtd.quantile(pct, weights = poids, probs = 0.25, na.rm = TRUE)[1],
+    Q75 = Hmisc::wtd.quantile(pct, weights = poids, probs = 0.75, na.rm = TRUE)[1],
+    .groups = "drop"
+  ) |>
+  mutate(
+    # Formater comme "Moyenne | Médiane (Q25 - Q75)"
+    Statistiques = paste0(
+      round(Moyenne * 100, 1), " | ",
+      round(Médiane * 100, 1), " (",
+      round(Q25 * 100, 1), " - ",
+      round(Q75 * 100, 1), ")"
+    )
+  ) |>
+  select(Variable, year, Statistiques) |>
+  pivot_wider(
+    names_from = year,
+    values_from = Statistiques
+  ) |>
+  mutate(
+    Variable = case_when(
+      Variable == "All_pct_level_34" ~ "Ensemble",
+      Variable == "Pauvres_pct_level_34" ~ "Pauvres",
+      Variable == "NonPauvres_pct_level_34" ~ "Non Pauvres"
+    )
+  ) |> 
+  gt() |>
+  cols_label(
+    Variable = "**Population**"
+  ) |>
+  tab_header(
+    title = "Pourcentage niveau 3-4 (statistiques pondérées)",
+    subtitle = "Moyenne | Médiane (Q25 - Q75)"
+  ) |>
+  tab_spanner(
+    label = "Année",
+    columns = -Variable
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  )
+
+```
+
+
+### Évolution du score des G3 en fonction de la race 
+Le score augmente pour tous fortement (mais plus pour les blancs que pour les autres). Il augmente peu pour les asiatiques (mais qui avaient le score le plus élevés en 24). Les blacks et hispanics augmentent un peu moins alors qu'ils étaient ceux avec le score le plus faible (et qui reste donc le plus faible). Au final l'écart avec les blancs se creuse ! (+3.7 pour l'écart blancs/noirs ; +2.3 pour blancs / hispanics)
+
+```{r}
+district3G |> 
+  summarize(
+    All_pct_level_34      = round(median(All_pct_level_34, na.rm = TRUE), 1),
+    White_pct_level_34    = round(median(White_pct_level_34, na.rm = TRUE), 1),
+    Black_pct_level_34    = round(median(Black_pct_level_34, na.rm = TRUE), 1),
+    Hispanic_pct_level_34 = round(median(Hispanic_pct_level_34, na.rm = TRUE), 1),
+    Asian_pct_level_34    = round(median(Asian_pct_level_34, na.rm = TRUE), 1),
+    .by = year
+  ) |> 
+  arrange(year) |>
+  pivot_longer(
+    cols = -year,              # Toutes les colonnes sauf year
+    names_to = "variable",     # Nom de la nouvelle colonne pour les noms de variables
+    values_to = "valeur"       # Nom de la nouvelle colonne pour les valeurs
+  ) |>
+  pivot_wider(
+    names_from = year,         # Les années deviennent les noms de colonnes
+    values_from = valeur       # Les valeurs à mettre dans les cellules
+  ) |> 
+  mutate(DeltaLY = `2025` - `2024`) |> 
+  kable()
+```
+
+### Évolution du score des G3 en fonction de la race (! ! pondéré ! !)
+Il faut définitivement pondérer. Maintenant c'est le score des blacks et des hispanics qui augmente le plus, puis des blancs puis des asiatiques (qui terminent dans un mouchoir de poche) et très au-dessus des hispanics et des noirs
+_Je suis néanmoins un peu supris que l'écart soit en moyenne de 15,5 alors qu'il n'est supéreiru à 15,5 que pour les blacks (16,4) et les hispanics (15.6)
+
+```{r}
+district3G |> 
+  group_by(year) |>
+  summarize(
+    All_pct_level_34 = round(Hmisc::wtd.quantile(All_pct_level_34, weights = All_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    White_pct_level_34 = round(Hmisc::wtd.quantile(White_pct_level_34, weights = White_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    Black_pct_level_34 = round(Hmisc::wtd.quantile(Black_pct_level_34, weights = Black_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    Hispanic_pct_level_34 = round(Hmisc::wtd.quantile(Hispanic_pct_level_34, weights = Hispanic_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    Asian_pct_level_34 = round(Hmisc::wtd.quantile(Asian_pct_level_34, weights = Asian_number_tested, probs = 0.5, na.rm = TRUE)[1], 1)
+  ) |>
+  ungroup() |>
+  arrange(year) |>
+  pivot_longer(
+    cols = -year,
+    names_to = "variable",
+    values_to = "valeur"
+  ) |>
+  pivot_wider(
+    names_from = year,
+    values_from = valeur
+  ) |>
+  mutate(DeltaLY = `2025` - `2024`) |>
+  kable()
+
+```
+
+
+### En séparant phase 1 et phase 2 
+
+Il n'y a pas de différence claire entre phase 1 et phase 2 (ou sinon effet polarisé entre les blancs qui s'en sortent mieux en phase 2 et les hispanics et blacks mieux en phase 1) ; mais les effectifs (districts) sont sans doute un peu faibles pour avoir des conclusions définitives ! 
+```{r}
+district3G |>
+  group_by(phase, year) |>
+  summarize(
+    All_pct_level_34 = round(Hmisc::wtd.quantile(All_pct_level_34, weights = All_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    White_pct_level_34 = round(Hmisc::wtd.quantile(White_pct_level_34, weights = White_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    Black_pct_level_34 = round(Hmisc::wtd.quantile(Black_pct_level_34, weights = Black_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    Hispanic_pct_level_34 = round(Hmisc::wtd.quantile(Hispanic_pct_level_34, weights = Hispanic_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    Asian_pct_level_34 = round(Hmisc::wtd.quantile(Asian_pct_level_34, weights = Asian_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    n = n(),
+    .groups = "drop"
+  ) |>
+  pivot_longer(
+    cols = c(All_pct_level_34, White_pct_level_34, Black_pct_level_34, 
+             Hispanic_pct_level_34, Asian_pct_level_34),
+    names_to = "Caractéristique",
+    values_to = "mediane"
+  ) |>
+  pivot_wider(
+    names_from = year,
+    values_from = mediane,
+    id_cols = c(phase, Caractéristique, n)
+  ) |> 
+  select(-n) |>
+  gt(groupname_col = "phase") |>
+  cols_label(
+    Caractéristique = "**Caractéristique**"
+  ) |>
+  tab_spanner(
+    label = "Année (médiane pondérée)",
+    columns = matches("^20")
+  )
+```
+
+### Évolution du taux de proefficiency en GR de 2018 à 2025 
+```{r}
+district3G |> 
+  group_by(district) |> 
+  tbl_summary(
+    include = All_pct_level_34, 
+    by = year
+  )
+```
+
+### Résultat par genre 
+_pondéré_
+les garçons profittent plus de la nouvelle méthode mais les filles restent de meilleures lectrices. 
+```{r}
+district3G |> 
+  group_by(year) |>
+  summarize(
+    Male_pct_level_34 = round(Hmisc::wtd.quantile(Male_pct_level_34, weights = Male_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+    Female_pct_level_34 = round(Hmisc::wtd.quantile(Female_pct_level_34, weights = Female_number_tested, probs = 0.5, na.rm = TRUE)[1], 1),
+  ) |>
+  ungroup() |>
+  arrange(year) |>
+  pivot_longer(
+    cols = -year,
+    names_to = "variable",
+    values_to = "valeur"
+  ) |>
+  pivot_wider(
+    names_from = year,
+    values_from = valeur
+  ) |>
+  mutate(
+    DeltaLY = `2025` - `2024`,
+    variable = case_when(
+      variable == "Male_pct_level_34" ~ "Garçons",
+      variable == "Female_pct_level_34" ~ "Filles",
+    )
+  ) |>
+  kable(col.names = c("Genre", "2018", "2019", "2022", "2023", "2024", "2025", "Δ LY"))
+```
+
 
 # Economics Status
 
 **Pour cette partie, tous les calculs sont limités au 3ème grade en 2025**
 
 ### Répartition des quartiles d'enfants pauvres par borough
-
+remarque : j'ai pondéré la création des quantiles et ça n'a rien changé au tableau 
 ```{r}
 district3G_25 |> 
   tbl_cross(
@@ -766,7 +1047,7 @@ district3G_25 |>
   kable()
 ```
 
-### Taux de riche par disctrict
+### Taux de riche par district
 
 ```{r}
 district3G_25 |> 
@@ -783,7 +1064,7 @@ district3G_25 |>
 ```
 
 ### Taux de riche par borough
-
+_pondéré_
 ```{r}
 district3G_25 |> 
   group_by(borough) |> 
@@ -799,6 +1080,7 @@ district3G_25 |>
 ```
 
 ### Quelques stats descriptives sur le taux de riche :
+_pondéré_
 
 ```{r}
 district3G_25 |> 
@@ -820,18 +1102,25 @@ district3G_25 |>
 ```
 
 ### Répartition des lecteurs (niveaux 3-4) parmi les pauvres et les riches
-
+_pondéré_ 
 ```{r}
 district3G_25 |> 
-  select(district, Pauvres_pct_level_34, NonPauvres_pct_level_34) |> 
-  kable()
+  summarize(
+    Pauvres_pct_level_34 = round(sum(Pauvres_level_34) / sum(Pauvres_number_tested) * 100, 1),
+    NonPauvres_pct_level_34 = round(sum(NonPauvres_level_34) / sum(NonPauvres_number_tested)*100, 1)
+      
+  )
+  
 ```
 
-### Qqs stats descriptives
+
+### Qqs stats descriptives (pondérées)
+_j'ai un petit doute sur mon raisonnement ; je pondère du nombre total d'enfant testé par ligne_
+Il y a 30 points d'écart entre les riches et les pauvres sur le taux de compétents en lecture pour le 3G en 2025
 
 ```{r}
-district3G_25 |> 
-  tbl_summary(
+district3G_25_svy |> 
+  tbl_svysummary(
     include = c(Pauvres_pct_level_34, NonPauvres_pct_level_34),
     type = all_continuous() ~"continuous2",
     statistic = all_continuous2() ~c(
@@ -844,10 +1133,13 @@ district3G_25 |>
 ```
 
 ### Statistiques descriptives par borough
+_pondéré_
+
+Le pauvres de Manhattan ont une médiane équivalente à celle de ceux du Bronx ! 
 
 ```{r}
-district3G_25 |> 
-  tbl_summary(
+district3G_25_svy |> 
+  tbl_svysummary(
     include = c(Pauvres_pct_level_34, NonPauvres_pct_level_34),
     by = borough ,
     type = all_continuous() ~"continuous2",
@@ -884,6 +1176,246 @@ district |>
 
 
 ```
+
+### Statistiques descriptives selon si SWD ou pas 
+_pondéré_ 
+Le taux d’élève compétent en lecture est moitié moindre pour les enfant handicapés que pour les autres 
+```{r}
+district3G_25_svy |> 
+  tbl_svysummary(
+    include = c(SWD_pct_level_34, not_SWD_pct_level_34),
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}" 
+    )
+  )
+```
+
+# Ethnicity
+
+## Proportion par race 
+```{r}
+district3G_25 |> 
+  summarize(
+    total_tested = sum(All_number_tested, na.rm = TRUE),
+    Black = sum(Black_number_tested, na.rm = TRUE),
+    White = sum(White_number_tested, na.rm = TRUE),
+    Asian = sum(Asian_number_tested, na.rm = TRUE),
+    Hispanic = sum(Hispanic_number_tested, na.rm = TRUE), 
+    Multi = sum(Multi_number_tested, na.rm = TRUE), 
+    Natives = sum(Natives_number_tested, na.rm = TRUE)
+  ) |>
+  pivot_longer(
+    cols = -total_tested,
+    names_to = "Groupe",
+    values_to = "Nombre"
+  ) |>
+  mutate(
+    Pourcentage = round(Nombre / total_tested * 100, 1)
+  ) |>
+  select(Groupe, Nombre, Pourcentage) |> 
+  arrange(desc(Pourcentage))
+```
+
+## race et borough
+```{r}
+district3G_25 |> 
+  group_by(borough) |>
+  summarize(
+    total_tested = sum(All_number_tested, na.rm = TRUE),
+    Black = sum(Black_number_tested, na.rm = TRUE),
+    White = sum(White_number_tested, na.rm = TRUE),
+    Asian = sum(Asian_number_tested, na.rm = TRUE),
+    Hispanic = sum(Hispanic_number_tested, na.rm = TRUE), 
+    Multi = sum(Multi_number_tested, na.rm = TRUE), 
+    Natives = sum(Natives_number_tested, na.rm = TRUE)
+  ) |>
+  pivot_longer(
+    cols = -c(borough, total_tested),
+    names_to = "Groupe",
+    values_to = "Nombre"
+  ) |>
+  mutate(
+    Pourcentage = round(Nombre / total_tested * 100, 1)
+  ) |>
+  select(Groupe, borough, Pourcentage) |>
+  pivot_wider(
+    names_from = borough,
+    values_from = Pourcentage
+  ) |>
+  arrange(desc(rowSums(across(where(is.numeric)), na.rm = TRUE)))
+```
+
+# Gender 
+
+## Répartition des genres 
+```{r}
+district3G_25 |> 
+  summarize(
+    Male = sum(Male_number_tested, na.rm = TRUE),
+    Female = sum(Female_number_tested, na.rm = TRUE),
+    NonBinaire = sum(NonBinaire_number_tested, na.rm = TRUE)
+  ) |>
+  mutate(
+    total_tested = Male + Female + NonBinaire
+  ) |>
+  pivot_longer(
+    cols = -total_tested,
+    names_to = "Genre",
+    values_to = "Nombre"
+  ) |>
+  mutate(
+    Pourcentage = round(Nombre / total_tested * 100, 1)
+  ) |>
+  select(Genre, Nombre, Pourcentage) |> 
+  arrange(desc(Pourcentage))
+```
+## Par borough 
+```{r}
+district3G_25 |> 
+  group_by(borough) |>
+  summarize(
+    Male = sum(Male_number_tested, na.rm = TRUE),
+    Female = sum(Female_number_tested, na.rm = TRUE)
+  ) |>
+  mutate(
+    total_tested = Male + Female 
+  ) |>
+  pivot_longer(
+    cols = -c(borough, total_tested),
+    names_to = "Genre",
+    values_to = "Nombre"
+  ) |>
+  mutate(
+    Pourcentage = round(Nombre / total_tested * 100, 1)
+  ) |>
+  select(Genre, borough, Pourcentage) |>
+  pivot_wider(
+    names_from = borough,
+    values_from = Pourcentage
+  ) |>
+  kable()
+```
+
+# SWD (handicap)
+```{r}
+district3G_25 |> 
+  summarize(
+    SWD = sum(SWD_number_tested, na.rm = TRUE),
+    not_SWD = sum(not_SWD_number_tested, na.rm = TRUE)
+  ) |>
+  mutate(
+    total_tested = SWD + not_SWD
+  ) |>
+  pivot_longer(
+    cols = -total_tested,
+    names_to = "Statut",
+    values_to = "Nombre"
+  ) |>
+  mutate(
+    Pourcentage = round(Nombre / total_tested * 100, 1),
+    Statut = case_when(
+      Statut == "SWD" ~ "Avec handicap",
+      Statut == "not_SWD" ~ "Sans handicap"
+    )
+  ) |>
+  select(Statut, Nombre, Pourcentage) |> 
+  arrange(desc(Pourcentage))
+```
+
+## par borough : 
+```{r}
+district3G_25 |> 
+  group_by(borough) |>
+  summarize(
+    SWD = sum(SWD_number_tested, na.rm = TRUE),
+    not_SWD = sum(not_SWD_number_tested, na.rm = TRUE)
+  ) |>
+  mutate(
+    total_tested = SWD + not_SWD 
+  ) |>
+  pivot_longer(
+    cols = -c(borough, total_tested),
+    names_to = "Statut",
+    values_to = "Nombre"
+  ) |>
+  mutate(
+    Pourcentage = round(Nombre / total_tested * 100, 1),
+    Statut = case_when(
+      Statut == "SWD" ~ "Avec handicap",
+      Statut == "not_SWD" ~ "Sans handicap"
+    )
+  ) |>
+  select(Statut, borough, Pourcentage) |>
+  pivot_wider(
+    names_from = borough,
+    values_from = Pourcentage
+  ) |>
+  kable()
+```
+
+# ELL 
+```{r}
+district3G_25 |> 
+  summarize(
+    CurrentELL = sum(CurrentELL_number_tested, na.rm = TRUE),
+    EverELL = sum(EverELL_number_tested, na.rm = TRUE),
+    NeverELL = sum(NeverELL_number_tested, na.rm = TRUE)
+  ) |>
+  mutate(
+    total_tested = CurrentELL + EverELL + NeverELL
+  ) |>
+  pivot_longer(
+    cols = -total_tested,
+    names_to = "Statut",
+    values_to = "Nombre"
+  ) |>
+  mutate(
+    Pourcentage = round(Nombre / total_tested * 100, 1),
+    Statut = case_when(
+      Statut == "CurrentELL" ~ "Actuellement en ELL",
+      Statut == "EverELL" ~ "Ancien ELL",
+      Statut == "NeverELL" ~ "Jamais ELL"
+    )
+  ) |>
+  select(Statut, Nombre, Pourcentage) 
+  
+```
+## par borough 
+```{r}
+district3G_25 |> 
+  group_by(borough) |>
+  summarize(
+    CurrentELL = sum(CurrentELL_number_tested, na.rm = TRUE),
+    EverELL = sum(EverELL_number_tested, na.rm = TRUE),
+    NeverELL = sum(NeverELL_number_tested, na.rm = TRUE)
+  ) |>
+  mutate(
+    total_tested = CurrentELL + EverELL + NeverELL 
+  ) |>
+  pivot_longer(
+    cols = -c(borough, total_tested),
+    names_to = "Statut",
+    values_to = "Nombre"
+  ) |>
+  mutate(
+    Pourcentage = round(Nombre / total_tested * 100, 1),
+    Statut = case_when(
+      Statut == "CurrentELL" ~ "Actuellement ELL",
+      Statut == "EverELL" ~ "Ancien ELL",
+      Statut == "NeverELL" ~ "Jamais ELL"
+    )
+  ) |>
+  select(Statut, borough, Pourcentage) |>
+  pivot_wider(
+    names_from = borough,
+    values_from = Pourcentage
+  ) |>
+  kable()
+```
+
 
 # Quelques vérifs :
 
