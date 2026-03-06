@@ -36,6 +36,14 @@ district3G <- district |>
 
 district3G_25 <- district3G |> 
   filter(year == "2025")
+
+school <- read_parquet("data/school.parquet")
+
+school3G <- school |> 
+  filter(grade == "3")
+
+school3G_25 <- school3G |> 
+  filter(year == "2025")
 ```
 
 # Base District 
