@@ -1,0 +1,71 @@
+---
+title: "T02. Régressions"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Table des matières"
+    toc-expand: true
+    code-fold: true
+    code-summary: "Voir le code"
+    code-tools: true
+embed-resources: true
+editor: visual
+execute: 
+  warning: false
+---
+
+```{r}
+#| message: false
+#| echo: false
+#| error: false
+
+library(tidyverse)
+library(arrow)
+library(gtsummary)
+library(gt)
+library(kableExtra)
+library(scales)
+library(survey)
+theme_gtsummary_language(language = "fr", decimal.mark = ",", big.mark = " ")
+district <- read_parquet("data/district.parquet")
+
+district3G <- district |> 
+  filter(grade == "3")
+
+district3G_25 <- district3G |> 
+  filter(year == "2025")
+```
+
+# Base District 
+## Toutes années que G3
+```{r}
+district3G |> 
+  lm(All_pct_level_34 ~ txWhite + txBlack + txHispanic + txAsian + txPauvres + phase + txSWD + txCurrentELL + txEverELL + txNeverELL + year , weights = All_number_tested, data = _) |> 
+  tbl_regression(intercept = TRUE) |> 
+  bold_p()
+```
+
+
+# Base school 
+## Toutes années  que G3
+
+```{r}
+school3G |> 
+  filter(All_number_tested > 19) |> 
+  lm(All_pct_level_34 ~ txWhite + txBlack + txHispanic + txAsian + txPauvres + phase + txSWD + txCurrentELL + txEverELL + txNeverELL + year , weights = All_number_tested, data = _) |> 
+  tbl_regression(intercept = TRUE) |> 
+  bold_p()
+```
+
+
+## Année 2025 G3 
+```{r}
+school3G_25 |> 
+  filter(All_number_tested > 19) |> 
+  lm(All_pct_level_34 ~ txWhite + txBlack + txHispanic + txAsian + txPauvres + phase + txSWD + txCurrentELL + txEverELL + txNeverELL + year , weights = All_number_tested, data = _) |> 
+  tbl_regression(intercept = TRUE) |> 
+  bold_p()
+```
+

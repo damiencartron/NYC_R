@@ -30,6 +30,20 @@ library(scales)
 library(survey)
 theme_gtsummary_language(language = "fr", decimal.mark = ",", big.mark = " ")
 district <- read_parquet("data/district.parquet")
+
+district3G <- district |> 
+  filter(grade == "3")
+
+district3G_25 <- district3G |> 
+  filter(year == "2025")
+
+school <- read_parquet("data/school.parquet")
+
+school3G <- school |> 
+  filter(grade == "3")
+
+school3G_25 <- school3G |> 
+  filter(year == "2025")
 ```
 
 Remarques préalables :
@@ -50,13 +64,7 @@ Remarques préalables :
 
 -   Par ailleurs, j'ai également calculé le tx de SWD (autrement dit le pourcentage de personne considérées comme SWD) par ligne : txSWD
 
-```{r}
-district3G <- district |> 
-  filter(grade == "3")
 
-district3G_25 <- district3G |> 
-  filter(year == "2025")
-```
 
 # Descriptif du fichier
 
@@ -1462,3 +1470,217 @@ district3G |>
   arrange(book) |> 
   kable()
 ```
+
+# La base école
+J'ai également importé la base school pour avoir une granularité plus fine, le programme d'import est le même que celui de district (c'est plus bas) ; le fichier est dans le drive (mais pas forcément à jour). 
+Pour mémoire, je n'ai pas creusé, mais le fichier Ethnicity comporte 2 lignes de moins que tous les autres
+
+## Descriptif de la base : 
+### Nombre d'écoles 
+```{r}
+school |> 
+  distinct(school_name) |> 
+  count()
+```
+
+## Quelques stats descritives sur le nombre d'élèves par école (toutes années confondues)
+Nous avons des écoles avec un seul élève ce qui va être un pb... regardons pour le grade 3 en 2025
+```{r}
+school |> 
+  tbl_summary(
+    include = All_number_tested,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )
+  )
+```
+
+## Quelsques stats descriptives sur le nombre d'élèves par école pour Grade 3 et 2025
+```{r}
+school3G_25 |> 
+  tbl_summary(
+    include = All_number_tested,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )
+  )
+```
+
+## Histogramme All_number_tested pour G3 et 2025
+```{r}
+school3G_25 |> 
+  ggplot(aes(x = All_number_tested)) + 
+  geom_histogram(binwidth = 5, 
+                 fill = "steelblue", 
+                 color = "white", 
+                 boundary = 0) +
+  scale_x_continuous(breaks = seq(0, max(school3G_25$All_number_tested, na.rm = TRUE), by = 10)) +
+  geom_vline(xintercept = quantile(school3G_25$All_number_tested, 0.1, na.rm = TRUE), color = "yellow", linetype = "dashed", linewidth = 1)+
+  geom_vline(xintercept = quantile(school3G_25$All_number_tested, 0.25, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+  geom_vline(xintercept = quantile(school3G_25$All_number_tested, 0.5, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+  geom_vline(xintercept = quantile(school3G_25$All_number_tested, 0.75, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+  geom_vline(xintercept = mean(school3G_25$All_number_tested, na.rm = TRUE), color = "red", linetype = "dashed", linewidth = 1)
+  
+```
+En jaune le D1, en vert les quartiles et en rouge la moyenne. 
+On pourrait supprimer les effectifs sous les 10 ou 15 sans que ça impacte trop nos effectifs.
+
+## Effectifs cummulés 
+```{r}
+school3G_25 |> 
+  count(All_number_tested) |>
+  arrange(All_number_tested) |>
+  mutate(cumul = cumsum(n)) |>
+  ggplot(aes(x = All_number_tested, y = cumul)) + 
+  geom_line() +
+  scale_x_continuous(breaks = seq(0, 1000, by = 10)) +
+  labs(y = "Effectifs cumulés") +
+  
+  geom_vline(xintercept = quantile(school3G_25$All_number_tested, 0.1, na.rm = TRUE), color = "yellow", linetype = "dashed", linewidth = 1)+
+  geom_vline(xintercept = quantile(school3G_25$All_number_tested, 0.25, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+  geom_vline(xintercept = quantile(school3G_25$All_number_tested, 0.5, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+  geom_vline(xintercept = quantile(school3G_25$All_number_tested, 0.75, na.rm = TRUE), color = "green", linetype = "dashed", linewidth = 1)+
+  geom_vline(xintercept = mean(school3G_25$All_number_tested, na.rm = TRUE), color = "red", linetype = "dashed", linewidth = 1)
+```
+
+## Aide à la découpe 
+```{r}
+school3G_25 |> 
+  tbl_summary(
+    include = All_number_tested,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{p1} || {p5} || {p10}",
+      "{min}" 
+    )
+  )
+```
+
+### Effets des différentes hypothèses de découpe pour G3 en 2025
+```{r}
+  fct_nbeeleves <- function(nbe) {
+    school3G_25 |> 
+      filter(All_number_tested > nbe) |> 
+      summarize(
+        nomvar = str_glue("NbeElev>{nbe}"),
+        NbeEleves = sum(All_number_tested, na.rm = TRUE), 
+        NbeClasses = n()
+      ) 
+    }  
+
+mestests <- c(0, 10, 15, 20, 25, 30)  
+
+map_df(mestests, ~fct_nbeeleves(.x))|>
+  mutate(
+    DeltaEleves = NbeEleves - lag(NbeEleves, default = NA),
+    CumulDelta = first(NbeEleves) - NbeEleves, 
+    DeltaClasses = NbeClasses - lag(NbeClasses, default = NA),
+    pctperteElev = percent(DeltaClasses / first(NbeEleves), accuracy = 0.01, suffix = " %"),
+    across(where(is.numeric), ~number(.x, big.mark = " "))
+  ) |> 
+  kable(align = "r")
+    
+```
+J'aurais tendance à proposer qu'on ne supprime pour commencer que les écoles avec 15 élèves ou moins, et qu'on voit par la suite. La seule chose qui me fait hésiter est que je n'ai aucune idée de la taille "normale" d'une classe en primaire dans le public ; je sais que dans le privé ils peuvent être très peu nombreux. Si on a la moitié des élèves exclus j'aurais tendance à supprimer plutôt à 20 ou à 25 considérant que les écoles qui ont sélectionné les élèves testés sont problématiques. Petit problème dans mon raisonnement (et il faudra voir si on essaie de faire plus malin) je n'ai en fait aucune idée si les 30 élèves testés le sont parmi les 150 de l'école (et qui en aurait sélectionné quelques uns par classe, ou aurait sélectionné des classes entières ce qui serait moins problématique)
+
+## Statistiques descriptives sur les résultats en lecture par classe
+
+### Score MSC
+```{r}
+school3G_25_svy <- svydesign(id = ~dbn, data = school3G_25,  #|> filter(All_number_tested >19),
+                             weights = school3G_25$All_number_tested)
+
+school3G_25_svy |> 
+  tbl_svysummary(
+    include = All_MSC,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )
+  )|> 
+  as_gt() |> 
+  tab_source_note("pondéré ; année 25 et 3G")
+
+```
+
+C'est plus discriminant que par district mais c'est quand même pas terrible d'autant que j'ai encore les classes avec petits effectifs 
+
+### tx de 34 
+```{r}
+school3G_25_svy |> 
+  tbl_svysummary(
+    include = All_pct_level_34,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )  
+  ) |> 
+  as_gt() |> 
+  tab_source_note("pondéré ; année 25 et 3G")
+```
+
+### tx34 : Les mêmes statistiques non pondérées pour les moins de 20 élèves 
+```{r}
+school3G_25 |> 
+  filter(All_number_tested < 20) |> 
+  tbl_summary(
+    include = All_pct_level_34,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )  
+  ) |> 
+  as_gt() |> 
+  tab_source_note("NON pondéré ; année 25 et 3G ; seulement les écoles avec moins de 20 élèves")
+```
+Ce sont bien eux qui ont des scores extrêmes ! 
+Je vérifie toujours en non pondéré 
+
+### tx 34 pour les plus de 19 élèves par école
+```{r}
+school3G_25 |> 
+  filter(All_number_tested >= 20) |> 
+  tbl_summary(
+    include = All_pct_level_34,
+    type = all_continuous() ~"continuous2",
+    statistic = all_continuous2() ~c(
+      "{mean} ({sd})",
+      "{median} ({p25} ; {p75})",
+      "{min} -- {max}", 
+      "{p10} -- {p90}"
+    )  
+  ) |> 
+  as_gt() |> 
+  tab_source_note("NON pondéré ; année 25 et 3G ; seulement les écoles avec AU MOINS 20 élèves")
+
+```
+On a encore du taux à 100 ! Mais j'ai vérifié même en montant à 100 élèves par école au moins une reste avec un score de  100 
+
+### tx34 : qui a un taux de 100 
+```{r}
+school3G_25 |> 
+  filter(All_pct_level_34 == 100) |> 
+  select(school_name, phase, book, borough, All_number_tested, All_MSC) |> 
+  arrange(desc(All_MSC)) |> 
+  kable()
+
+```
+
